@@ -4,20 +4,28 @@ use soroban_sdk::contracterror;
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum EscrowError {
-    /// amount must be > 0
     InvalidAmount = 1,
-    /// caller is not the authorised party
     Unauthorized = 2,
-    /// no escrow found for the given id
     EscrowNotFound = 3,
-    /// escrow has already been funded
     AlreadyFunded = 4,
-    /// escrow is in the wrong state for this operation
     InvalidStatus = 5,
-    /// escrow has already been released
     AlreadyReleased = 6,
-    /// escrow has already been refunded
     AlreadyRefunded = 7,
-    /// token transfer failed
     TransferFailed = 8,
+    EscrowAlreadyExists = 9,
+    InsufficientBalance = 10,
+    InvalidStateTransition = 11,
+    DeadlineExpired = 12,
+    DeadlineNotPassed = 13,
+    EscrowAlreadyCancelled = 14,
+    CannotModifyFundedEscrow = 15,
+    MilestoneNotFound = 16,
+    DisputeAlreadyRaised = 17,
+    NoActiveDispute = 18,
+    FeeTransferFailed = 19,
+    InvalidFeePercentage = 20,
+    AdminRequired = 21,
+    ContractPaused = 22,
+    InvalidToken = 23,
+    DeadlineInPast = 24,
 }
