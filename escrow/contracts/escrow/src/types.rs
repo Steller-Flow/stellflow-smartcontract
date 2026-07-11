@@ -72,4 +72,5 @@ pub enum DataKey {
     Paused,
     PlatformTreasury,
     DefaultFeePercent,
+    EscrowTTL,
 }

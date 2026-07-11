@@ -21,8 +21,9 @@ pub fn create_funded_escrow(
 ) -> u64 {
     use crate::EscrowContract;
 
-    let contract = EscrowContract::new(env);
-    let escrow_id = contract.create_escrow(client.clone(), freelancer.clone(), token.clone(), amount);
-    contract.fund_escrow(client.clone(), escrow_id);
+    let contract_id = env.register_contract(None, EscrowContract);
+    let c = crate::contract::EscrowContractClient::new(env, &contract_id);
+    let escrow_id = c.create_escrow(client, freelancer, token, &amount, &None);
+    c.fund_escrow(client, &escrow_id);
     escrow_id
 }
