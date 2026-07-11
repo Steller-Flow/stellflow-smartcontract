@@ -16,7 +16,13 @@ const MILESTONE_SUBMITTED: Symbol = symbol_short!("MSN_SUB");
 const MILESTONE_RELEASED: Symbol = symbol_short!("MSN_REL");
 const FEE_COLLECTED: Symbol = symbol_short!("FEE_COL");
 const FEE_UPDATED: Symbol = symbol_short!("FEE_UPD");
+const CONTRACT_UPGRADED: Symbol = symbol_short!("CTR_UPG");
+const ROLE_ASSIGNED: Symbol = symbol_short!("RLE_ASG");
 
+/// Emits an event when a new escrow is created.
+///
+/// Topics: `[ESC_CRT, escrow_id]`
+/// Data: `(client, freelancer, amount, timestamp)`
 pub(crate) fn emit_escrow_created(
     env: &Env,
     escrow_id: u64,
@@ -30,6 +36,10 @@ pub(crate) fn emit_escrow_created(
     );
 }
 
+/// Emits an event when an escrow is funded.
+///
+/// Topics: `[ESC_FND, escrow_id]`
+/// Data: `(amount, timestamp)`
 pub(crate) fn emit_escrow_funded(env: &Env, escrow_id: u64, amount: i128) {
     env.events().publish(
         (ESCROW_FUNDED, escrow_id),
@@ -37,6 +47,10 @@ pub(crate) fn emit_escrow_funded(env: &Env, escrow_id: u64, amount: i128) {
     );
 }
 
+/// Emits an event when an escrow is released to the freelancer.
+///
+/// Topics: `[ESC_REL, escrow_id]`
+/// Data: `(client, amount, timestamp)`
 pub(crate) fn emit_escrow_released(env: &Env, escrow_id: u64, client: &Address, amount: i128) {
     env.events().publish(
         (ESCROW_RELEASED, escrow_id),
@@ -44,6 +58,10 @@ pub(crate) fn emit_escrow_released(env: &Env, escrow_id: u64, client: &Address, 
     );
 }
 
+/// Emits an event when an escrow is refunded to the client.
+///
+/// Topics: `[ESC_RFD, escrow_id]`
+/// Data: `(client, amount, timestamp)`
 pub(crate) fn emit_escrow_refunded(env: &Env, escrow_id: u64, client: &Address, amount: i128) {
     env.events().publish(
         (ESCROW_REFUNDED, escrow_id),
@@ -51,6 +69,10 @@ pub(crate) fn emit_escrow_refunded(env: &Env, escrow_id: u64, client: &Address, 
     );
 }
 
+/// Emits an event when an escrow is cancelled.
+///
+/// Topics: `[ESC_CAN, escrow_id]`
+/// Data: `(client, timestamp)`
 pub(crate) fn emit_escrow_cancelled(env: &Env, escrow_id: u64, client: &Address) {
     env.events().publish(
         (ESCROW_CANCELLED, escrow_id),
@@ -58,6 +80,10 @@ pub(crate) fn emit_escrow_cancelled(env: &Env, escrow_id: u64, client: &Address)
     );
 }
 
+/// Emits an event when a dispute is raised.
+///
+/// Topics: `[ESC_DPT, escrow_id]`
+/// Data: `(raiser, amount, timestamp)`
 pub(crate) fn emit_escrow_disputed(env: &Env, escrow_id: u64, raiser: &Address, amount: i128) {
     env.events().publish(
         (ESCROW_DISPUTED, escrow_id),
@@ -65,6 +91,10 @@ pub(crate) fn emit_escrow_disputed(env: &Env, escrow_id: u64, raiser: &Address, 
     );
 }
 
+/// Emits an event when a dispute is resolved.
+///
+/// Topics: `[ESC_RSV, escrow_id]`
+/// Data: `(resolver, outcome, released_amount, refunded_amount, timestamp)`
 pub(crate) fn emit_escrow_resolved(
     env: &Env,
     escrow_id: u64,
@@ -85,6 +115,10 @@ pub(crate) fn emit_escrow_resolved(
     );
 }
 
+/// Emits an event when an escrow is modified.
+///
+/// Topics: `[ESC_MDF, escrow_id]`
+/// Data: `(modifier, new_amount, new_freelancer, timestamp)`
 pub(crate) fn emit_escrow_modified(
     env: &Env,
     escrow_id: u64,
@@ -103,6 +137,10 @@ pub(crate) fn emit_escrow_modified(
     );
 }
 
+/// Emits an event when a deadline is set on an escrow.
+///
+/// Topics: `[ESC_DLN, escrow_id]`
+/// Data: `(client, deadline, timestamp)`
 pub(crate) fn emit_escrow_deadline_set(
     env: &Env,
     escrow_id: u64,
@@ -115,6 +153,10 @@ pub(crate) fn emit_escrow_deadline_set(
     );
 }
 
+/// Emits an event when a timeout claim is made.
+///
+/// Topics: `[ESC_TMO, escrow_id]`
+/// Data: `(client, amount, timestamp)`
 pub(crate) fn emit_escrow_timeout_claimed(
     env: &Env,
     escrow_id: u64,
@@ -127,6 +169,10 @@ pub(crate) fn emit_escrow_timeout_claimed(
     );
 }
 
+/// Emits an event when a milestone is approved.
+///
+/// Topics: `[MSN_APR, escrow_id]`
+/// Data: `(milestone_id, client, timestamp)`
 pub(crate) fn emit_milestone_approved(
     env: &Env,
     escrow_id: u64,
@@ -139,6 +185,10 @@ pub(crate) fn emit_milestone_approved(
     );
 }
 
+/// Emits an event when a milestone is rejected.
+///
+/// Topics: `[MSN_RJT, escrow_id]`
+/// Data: `(milestone_id, client, timestamp)`
 pub(crate) fn emit_milestone_rejected(
     env: &Env,
     escrow_id: u64,
@@ -151,6 +201,10 @@ pub(crate) fn emit_milestone_rejected(
     );
 }
 
+/// Emits an event when a milestone is submitted.
+///
+/// Topics: `[MSN_SUB, escrow_id]`
+/// Data: `(milestone_id, freelancer, timestamp)`
 pub(crate) fn emit_milestone_submitted(
     env: &Env,
     escrow_id: u64,
@@ -163,6 +217,10 @@ pub(crate) fn emit_milestone_submitted(
     );
 }
 
+/// Emits an event when a milestone is released.
+///
+/// Topics: `[MSN_REL, escrow_id]`
+/// Data: `(milestone_id, client, amount, timestamp)`
 pub(crate) fn emit_milestone_released(
     env: &Env,
     escrow_id: u64,
@@ -176,6 +234,10 @@ pub(crate) fn emit_milestone_released(
     );
 }
 
+/// Emits an event when a fee is collected.
+///
+/// Topics: `[FEE_COL, escrow_id]`
+/// Data: `(fee_amount, treasury, timestamp)`
 pub(crate) fn emit_fee_collected(
     env: &Env,
     escrow_id: u64,
@@ -188,6 +250,10 @@ pub(crate) fn emit_fee_collected(
     );
 }
 
+/// Emits an event when a fee is updated.
+///
+/// Topics: `[FEE_UPD, escrow_id]`
+/// Data: `(admin, old_fee, new_fee, timestamp)`
 pub(crate) fn emit_fee_updated(
     env: &Env,
     escrow_id: u64,
@@ -198,5 +264,42 @@ pub(crate) fn emit_fee_updated(
     env.events().publish(
         (FEE_UPDATED, escrow_id),
         (admin.clone(), old_fee, new_fee, env.ledger().timestamp()),
+    );
+}
+
+/// Emits an event when the contract is upgraded.
+///
+/// Topics: `[CTR_UPG]`
+/// Data: `(admin, old_version, new_version, timestamp)`
+pub(crate) fn emit_contract_upgraded(
+    env: &Env,
+    admin: &Address,
+    old_version: u32,
+    new_version: u32,
+) {
+    env.events().publish(
+        (CONTRACT_UPGRADED,),
+        (admin.clone(), old_version, new_version, env.ledger().timestamp()),
+    );
+}
+
+/// Emits an event when a role is assigned.
+///
+/// Topics: `[RLE_ASG]`
+/// Data: `(admin, address, role, timestamp)`
+pub(crate) fn emit_role_assigned(
+    env: &Env,
+    admin: &Address,
+    address: &Address,
+    role: &soroban_sdk::String,
+) {
+    env.events().publish(
+        (ROLE_ASSIGNED,),
+        (
+            admin.clone(),
+            address.clone(),
+            role.clone(),
+            env.ledger().timestamp(),
+        ),
     );
 }
