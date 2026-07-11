@@ -76,7 +76,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libdbus-1-dev pkg-config
+          sudo apt-get install -y libdbus-1-dev pkg-config libudev-dev libusb-1.0-0-dev
       - name: Install soroban-cli
         run: cargo install --locked soroban-cli
       - name: Build contract
