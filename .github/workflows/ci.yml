@@ -9,6 +9,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   SOROBAN_NETWORK: testnet
+  CARGO_INCREMENTAL: 1
 
 jobs:
   lint:
@@ -19,6 +20,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            escrow/target
+          key: ${{ runner.os }}-cargo-lint-${{ hashFiles('escrow/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-lint-
       - name: Check formatting
         run: cargo fmt --all -- --check
         working-directory: escrow
@@ -32,6 +42,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            escrow/target
+          key: ${{ runner.os }}-cargo-test-${{ hashFiles('escrow/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-test-
       - name: Run tests
         run: cargo test --all
         working-directory: escrow
@@ -45,6 +64,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            escrow/target
+          key: ${{ runner.os }}-cargo-build-${{ hashFiles('escrow/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-build-
       - name: Install soroban-cli
         run: cargo install --locked soroban-cli
       - name: Build contract
@@ -59,11 +87,20 @@ jobs:
             echo "ERROR: Contract exceeds maximum size of $MAX_SIZE bytes"
             exit 1
           fi
+      - name: Optimize contract
+        run: |
+          soroban contract optimize \
+            --wasm escrow/target/release/libstellflow_escrow.so \
+            --output escrow/target/release/stellflow_escrow_optimized.wasm
+          OPT_SIZE=$(stat -f%z escrow/target/release/stellflow_escrow_optimized.wasm 2>/dev/null || stat -c%s escrow/target/release/stellflow_escrow_optimized.wasm 2>/dev/null)
+          echo "Optimized contract size: $OPT_SIZE bytes"
       - name: Upload contract artifact
         uses: actions/upload-artifact@v4
         with:
           name: escrow-contract
-          path: escrow/target/release/libstellflow_escrow.so
+          path: |
+            escrow/target/release/libstellflow_escrow.so
+            escrow/target/release/stellflow_escrow_optimized.wasm
 
   security:
     name: Security Audit
