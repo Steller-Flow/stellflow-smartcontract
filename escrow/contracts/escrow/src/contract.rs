@@ -27,7 +27,7 @@ impl EscrowContract {
             return Err(EscrowError::InvalidAmount);
         }
         if client == freelancer {
-            return Err(EscrowError::Unauthorized);
+            return Err(EscrowError::UnauthorizedAction);
         }
         if let Some(dl) = deadline {
             if dl <= env.ledger().timestamp() {
@@ -78,10 +78,13 @@ impl EscrowContract {
             return Err(EscrowError::InvalidAmount);
         }
         if client == freelancer {
-            return Err(EscrowError::Unauthorized);
+            return Err(EscrowError::UnauthorizedAction);
         }
         if milestone_descriptions.len() != milestone_amounts.len() {
-            return Err(EscrowError::InvalidAmount);
+            return Err(EscrowError::MilestoneCountMismatch);
+        }
+        if milestone_descriptions.is_empty() {
+            return Err(EscrowError::ZeroMilestones);
         }
         if let Some(dl) = deadline {
             if dl <= env.ledger().timestamp() {
@@ -90,7 +93,7 @@ impl EscrowContract {
         }
         let total_milestone_amount: i128 = milestone_amounts.iter().sum();
         if total_milestone_amount != amount {
-            return Err(EscrowError::InvalidAmount);
+            return Err(EscrowError::MilestoneAmountMismatch);
         }
         client.require_auth();
         let escrow_id = storage::next_escrow_id(&env);
@@ -136,19 +139,23 @@ impl EscrowContract {
         client.require_auth();
         let mut escrow = storage::get_escrow(&env, escrow_id)?;
         if escrow.client != client {
-            return Err(EscrowError::Unauthorized);
+            return Err(EscrowError::UnauthorizedAction);
         }
         match escrow.status {
             EscrowStatus::Pending => {}
             EscrowStatus::Funded => return Err(EscrowError::AlreadyFunded),
-            _ => return Err(EscrowError::InvalidStatus),
+            EscrowStatus::Cancelled => return Err(EscrowError::EscrowAlreadyCancelled),
+            EscrowStatus::Released => return Err(EscrowError::EscrowAlreadyReleased),
+            EscrowStatus::Refunded => return Err(EscrowError::EscrowAlreadyRefunded),
+            EscrowStatus::Disputed => return Err(EscrowError::InvalidStateTransition),
         }
         let token_client = token::Client::new(&env, &escrow.token);
         let escrow_amount = escrow.amount;
         token_client.transfer(&client, &env.current_contract_address(), &escrow_amount);
+        let old_status = escrow.status.clone();
         escrow.status = EscrowStatus::Funded;
         escrow.funded_at = Some(env.ledger().timestamp());
-        Self::push_history(&env, &mut escrow, EscrowStatus::Pending, &client, escrow_amount);
+        Self::push_history(&env, &mut escrow, old_status, &client, escrow_amount);
         storage::save_escrow(&env, &escrow);
         events::emit_escrow_funded(&env, escrow_id, escrow_amount);
         Ok(())
@@ -159,11 +166,15 @@ impl EscrowContract {
         client.require_auth();
         let mut escrow = storage::get_escrow(&env, escrow_id)?;
         if escrow.client != client {
-            return Err(EscrowError::Unauthorized);
+            return Err(EscrowError::UnauthorizedAction);
         }
         match escrow.status {
             EscrowStatus::Funded => {}
-            _ => return Err(EscrowError::InvalidStatus),
+            EscrowStatus::Pending => return Err(EscrowError::InvalidStateTransition),
+            EscrowStatus::Released => return Err(EscrowError::EscrowAlreadyReleased),
+            EscrowStatus::Refunded => return Err(EscrowError::EscrowAlreadyRefunded),
+            EscrowStatus::Cancelled => return Err(EscrowError::EscrowAlreadyCancelled),
+            EscrowStatus::Disputed => return Err(EscrowError::NoActiveDispute),
         }
         if let Some(dl) = escrow.deadline {
             if env.ledger().timestamp() < dl {
@@ -194,7 +205,7 @@ impl EscrowContract {
         escrow.total_released = release_amount;
         Self::push_history(&env, &mut escrow, old_status, &client, release_amount);
         storage::save_escrow(&env, &escrow);
-        events::emit_escrow_released(&env, escrow_id, release_amount);
+        events::emit_escrow_released(&env, escrow_id, &client, release_amount);
         Ok(())
     }
 
@@ -203,11 +214,15 @@ impl EscrowContract {
         client.require_auth();
         let mut escrow = storage::get_escrow(&env, escrow_id)?;
         if escrow.client != client {
-            return Err(EscrowError::Unauthorized);
+            return Err(EscrowError::UnauthorizedAction);
         }
         match escrow.status {
             EscrowStatus::Funded => {}
-            _ => return Err(EscrowError::InvalidStatus),
+            EscrowStatus::Pending => return Err(EscrowError::InvalidStateTransition),
+            EscrowStatus::Released => return Err(EscrowError::EscrowAlreadyReleased),
+            EscrowStatus::Refunded => return Err(EscrowError::EscrowAlreadyRefunded),
+            EscrowStatus::Cancelled => return Err(EscrowError::EscrowAlreadyCancelled),
+            EscrowStatus::Disputed => return Err(EscrowError::NoActiveDispute),
         }
         let token_client = token::Client::new(&env, &escrow.token);
         let refund_amount = escrow.amount;
@@ -222,7 +237,7 @@ impl EscrowContract {
         escrow.total_refunded = refund_amount;
         Self::push_history(&env, &mut escrow, old_status, &client, refund_amount);
         storage::save_escrow(&env, &escrow);
-        events::emit_escrow_refunded(&env, escrow_id, refund_amount);
+        events::emit_escrow_refunded(&env, escrow_id, &client, refund_amount);
         Ok(())
     }
 
@@ -231,18 +246,22 @@ impl EscrowContract {
         client.require_auth();
         let mut escrow = storage::get_escrow(&env, escrow_id)?;
         if escrow.client != client {
-            return Err(EscrowError::Unauthorized);
+            return Err(EscrowError::UnauthorizedAction);
         }
         match escrow.status {
             EscrowStatus::Pending => {}
-            _ => return Err(EscrowError::InvalidStatus),
+            EscrowStatus::Funded => return Err(EscrowError::InvalidStateTransition),
+            EscrowStatus::Released => return Err(EscrowError::EscrowAlreadyReleased),
+            EscrowStatus::Refunded => return Err(EscrowError::EscrowAlreadyRefunded),
+            EscrowStatus::Cancelled => return Err(EscrowError::EscrowAlreadyCancelled),
+            EscrowStatus::Disputed => return Err(EscrowError::NoActiveDispute),
         }
         let old_status = escrow.status.clone();
         escrow.status = EscrowStatus::Cancelled;
         escrow.cancelled_at = Some(env.ledger().timestamp());
         Self::push_history(&env, &mut escrow, old_status, &client, 0);
         storage::save_escrow(&env, &escrow);
-        events::emit_escrow_cancelled(&env, escrow_id);
+        events::emit_escrow_cancelled(&env, escrow_id, &client);
         Ok(())
     }
 
@@ -257,17 +276,21 @@ impl EscrowContract {
         client.require_auth();
         let mut escrow = storage::get_escrow(&env, escrow_id)?;
         if escrow.client != client {
-            return Err(EscrowError::Unauthorized);
+            return Err(EscrowError::UnauthorizedAction);
         }
         match escrow.status {
             EscrowStatus::Pending => {}
-            _ => return Err(EscrowError::CannotModifyFundedEscrow),
+            EscrowStatus::Funded => return Err(EscrowError::CannotModifyFundedEscrow),
+            EscrowStatus::Released => return Err(EscrowError::EscrowAlreadyReleased),
+            EscrowStatus::Refunded => return Err(EscrowError::EscrowAlreadyRefunded),
+            EscrowStatus::Cancelled => return Err(EscrowError::EscrowAlreadyCancelled),
+            EscrowStatus::Disputed => return Err(EscrowError::InvalidStateTransition),
         }
-        if let Some(freelancer) = new_freelancer {
-            if client == freelancer {
-                return Err(EscrowError::Unauthorized);
+        if let Some(ref freelancer) = new_freelancer {
+            if client == *freelancer {
+                return Err(EscrowError::UnauthorizedAction);
             }
-            escrow.freelancer = freelancer;
+            escrow.freelancer = freelancer.clone();
         }
         if let Some(amount) = new_amount {
             if amount <= 0 {
@@ -278,7 +301,7 @@ impl EscrowContract {
         let old_status = escrow.status.clone();
         Self::push_history(&env, &mut escrow, old_status, &client, 0);
         storage::save_escrow(&env, &escrow);
-        events::emit_escrow_modified(&env, escrow_id, &client);
+        events::emit_escrow_modified(&env, escrow_id, &client, new_amount, new_freelancer.as_ref());
         Ok(())
     }
 
@@ -292,17 +315,23 @@ impl EscrowContract {
         client.require_auth();
         let mut escrow = storage::get_escrow(&env, escrow_id)?;
         if escrow.client != client {
-            return Err(EscrowError::Unauthorized);
+            return Err(EscrowError::UnauthorizedAction);
         }
         match escrow.status {
             EscrowStatus::Pending | EscrowStatus::Funded => {}
-            _ => return Err(EscrowError::InvalidStatus),
+            EscrowStatus::Released => return Err(EscrowError::EscrowAlreadyReleased),
+            EscrowStatus::Refunded => return Err(EscrowError::EscrowAlreadyRefunded),
+            EscrowStatus::Cancelled => return Err(EscrowError::EscrowAlreadyCancelled),
+            EscrowStatus::Disputed => return Err(EscrowError::InvalidStateTransition),
         }
         if deadline <= env.ledger().timestamp() {
             return Err(EscrowError::DeadlineInPast);
         }
         escrow.deadline = Some(deadline);
+        let old_status = escrow.status.clone();
+        Self::push_history(&env, &mut escrow, old_status, &client, 0);
         storage::save_escrow(&env, &escrow);
+        events::emit_escrow_deadline_set(&env, escrow_id, &client, deadline);
         Ok(())
     }
 
@@ -311,10 +340,10 @@ impl EscrowContract {
         client.require_auth();
         let mut escrow = storage::get_escrow(&env, escrow_id)?;
         if escrow.client != client {
-            return Err(EscrowError::Unauthorized);
+            return Err(EscrowError::UnauthorizedAction);
         }
         if escrow.status != EscrowStatus::Funded {
-            return Err(EscrowError::InvalidStatus);
+            return Err(EscrowError::InvalidStateTransition);
         }
         let deadline = escrow.deadline.ok_or(EscrowError::DeadlineNotPassed)?;
         if env.ledger().timestamp() < deadline {
@@ -333,7 +362,7 @@ impl EscrowContract {
         escrow.total_refunded = claim_amount;
         Self::push_history(&env, &mut escrow, old_status, &client, claim_amount);
         storage::save_escrow(&env, &escrow);
-        events::emit_escrow_refunded(&env, escrow_id, claim_amount);
+        events::emit_escrow_timeout_claimed(&env, escrow_id, &client, claim_amount);
         Ok(())
     }
 
@@ -347,23 +376,26 @@ impl EscrowContract {
         client.require_auth();
         let mut escrow = storage::get_escrow(&env, escrow_id)?;
         if escrow.client != client {
-            return Err(EscrowError::Unauthorized);
+            return Err(EscrowError::UnauthorizedAction);
         }
         if escrow.status != EscrowStatus::Funded {
-            return Err(EscrowError::InvalidStatus);
+            return Err(EscrowError::InvalidStateTransition);
         }
         let mut milestones = escrow.milestones.clone();
         let mut found = false;
         for i in 0..milestones.len() {
             let mut m = milestones.get(i).unwrap();
             if m.milestone_id == milestone_id {
-                if m.status != MilestoneStatus::Pending && m.status != MilestoneStatus::Submitted {
+                if m.status == MilestoneStatus::Approved {
                     return Err(EscrowError::InvalidStateTransition);
+                }
+                if m.status != MilestoneStatus::Pending && m.status != MilestoneStatus::Submitted {
+                    return Err(EscrowError::CannotReleaseUnapprovedMilestone);
                 }
                 m.status = MilestoneStatus::Approved;
                 milestones.set(i, m);
                 found = true;
-                events::emit_milestone_approved(&env, escrow_id, milestone_id);
+                events::emit_milestone_approved(&env, escrow_id, milestone_id, &client);
                 break;
             }
         }
@@ -385,23 +417,26 @@ impl EscrowContract {
         client.require_auth();
         let mut escrow = storage::get_escrow(&env, escrow_id)?;
         if escrow.client != client {
-            return Err(EscrowError::Unauthorized);
+            return Err(EscrowError::UnauthorizedAction);
         }
         if escrow.status != EscrowStatus::Funded {
-            return Err(EscrowError::InvalidStatus);
+            return Err(EscrowError::InvalidStateTransition);
         }
         let mut milestones = escrow.milestones.clone();
         let mut found = false;
         for i in 0..milestones.len() {
             let mut m = milestones.get(i).unwrap();
             if m.milestone_id == milestone_id {
-                if m.status != MilestoneStatus::Pending && m.status != MilestoneStatus::Submitted {
+                if m.status == MilestoneStatus::Rejected {
                     return Err(EscrowError::InvalidStateTransition);
+                }
+                if m.status != MilestoneStatus::Pending && m.status != MilestoneStatus::Submitted {
+                    return Err(EscrowError::CannotReleaseUnapprovedMilestone);
                 }
                 m.status = MilestoneStatus::Rejected;
                 milestones.set(i, m);
                 found = true;
-                events::emit_milestone_rejected(&env, escrow_id, milestone_id);
+                events::emit_milestone_rejected(&env, escrow_id, milestone_id, &client);
                 break;
             }
         }
@@ -423,10 +458,10 @@ impl EscrowContract {
         freelancer.require_auth();
         let mut escrow = storage::get_escrow(&env, escrow_id)?;
         if escrow.freelancer != freelancer {
-            return Err(EscrowError::Unauthorized);
+            return Err(EscrowError::UnauthorizedAction);
         }
         if escrow.status != EscrowStatus::Funded {
-            return Err(EscrowError::InvalidStatus);
+            return Err(EscrowError::InvalidStateTransition);
         }
         let mut milestones = escrow.milestones.clone();
         let mut found = false;
@@ -434,12 +469,12 @@ impl EscrowContract {
             let mut m = milestones.get(i).unwrap();
             if m.milestone_id == milestone_id {
                 if m.status != MilestoneStatus::Pending {
-                    return Err(EscrowError::InvalidStateTransition);
+                    return Err(EscrowError::CannotSubmitAlreadySubmittedMilestone);
                 }
                 m.status = MilestoneStatus::Submitted;
                 milestones.set(i, m);
                 found = true;
-                events::emit_milestone_submitted(&env, escrow_id, milestone_id);
+                events::emit_milestone_submitted(&env, escrow_id, milestone_id, &freelancer);
                 break;
             }
         }
@@ -461,10 +496,10 @@ impl EscrowContract {
         client.require_auth();
         let mut escrow = storage::get_escrow(&env, escrow_id)?;
         if escrow.client != client {
-            return Err(EscrowError::Unauthorized);
+            return Err(EscrowError::UnauthorizedAction);
         }
         if escrow.status != EscrowStatus::Funded {
-            return Err(EscrowError::InvalidStatus);
+            return Err(EscrowError::InvalidStateTransition);
         }
         let mut milestones = escrow.milestones.clone();
         let mut found = false;
@@ -473,10 +508,10 @@ impl EscrowContract {
             let mut m = milestones.get(i).unwrap();
             if m.milestone_id == milestone_id {
                 if m.status != MilestoneStatus::Approved {
-                    return Err(EscrowError::InvalidStateTransition);
+                    return Err(EscrowError::CannotReleaseUnapprovedMilestone);
                 }
                 if m.released {
-                    return Err(EscrowError::InvalidStateTransition);
+                    return Err(EscrowError::MilestoneAlreadyReleased);
                 }
                 milestone_amount = m.amount;
                 m.released = true;
@@ -504,7 +539,7 @@ impl EscrowContract {
             &escrow.freelancer,
             &milestone_amount,
         );
-        events::emit_milestone_released(&env, escrow_id, milestone_id, milestone_amount);
+        events::emit_milestone_released(&env, escrow_id, milestone_id, &client, milestone_amount);
         Ok(())
     }
 
@@ -513,10 +548,10 @@ impl EscrowContract {
         caller.require_auth();
         let mut escrow = storage::get_escrow(&env, escrow_id)?;
         if escrow.client != caller && escrow.freelancer != caller {
-            return Err(EscrowError::Unauthorized);
+            return Err(EscrowError::UnauthorizedAction);
         }
         if escrow.status != EscrowStatus::Funded {
-            return Err(EscrowError::InvalidStatus);
+            return Err(EscrowError::InvalidStateTransition);
         }
         if escrow.disputed_at.is_some() {
             return Err(EscrowError::DisputeAlreadyRaised);
@@ -526,7 +561,7 @@ impl EscrowContract {
         escrow.disputed_at = Some(env.ledger().timestamp());
         Self::push_history(&env, &mut escrow, old_status, &caller, 0);
         storage::save_escrow(&env, &escrow);
-        events::emit_escrow_disputed(&env, escrow_id, &caller);
+        events::emit_escrow_disputed(&env, escrow_id, &caller, escrow.amount);
         Ok(())
     }
 
@@ -541,7 +576,7 @@ impl EscrowContract {
         resolver.require_auth();
         let arbiter = storage::get_admin(&env).ok_or(EscrowError::Unauthorized)?;
         if resolver != arbiter {
-            return Err(EscrowError::Unauthorized);
+            return Err(EscrowError::UnauthorizedAction);
         }
         let mut escrow = storage::get_escrow(&env, escrow_id)?;
         if escrow.status != EscrowStatus::Disputed {
@@ -579,11 +614,20 @@ impl EscrowContract {
                     events::emit_fee_collected(&env, escrow_id, fee, &treasury);
                 }
             }
+            let old_status = escrow.status.clone();
             escrow.status = EscrowStatus::Released;
             escrow.released_at = Some(env.ledger().timestamp());
             escrow.total_released = net_freelancer;
             escrow.total_refunded = client_amount;
-            events::emit_escrow_resolved(&env, escrow_id, &resolver, "split_funds");
+            Self::push_history(&env, &mut escrow, old_status, &resolver, escrow_amount);
+            events::emit_escrow_resolved(
+                &env,
+                escrow_id,
+                &resolver,
+                "split_funds",
+                net_freelancer,
+                client_amount,
+            );
         } else if release_to_freelancer {
             let fee = Self::calculate_fee(&escrow);
             let release_amount = escrow_amount - fee;
@@ -598,26 +642,49 @@ impl EscrowContract {
                     events::emit_fee_collected(&env, escrow_id, fee, &treasury);
                 }
             }
+            let old_status = escrow.status.clone();
             escrow.status = EscrowStatus::Released;
             escrow.released_at = Some(env.ledger().timestamp());
             escrow.total_released = release_amount;
-            events::emit_escrow_resolved(&env, escrow_id, &resolver, "released_to_freelancer");
+            Self::push_history(&env, &mut escrow, old_status, &resolver, release_amount);
+            events::emit_escrow_resolved(
+                &env,
+                escrow_id,
+                &resolver,
+                "released_to_freelancer",
+                release_amount,
+                0,
+            );
         } else {
             token_client.transfer(
                 &env.current_contract_address(),
                 &escrow_client,
                 &escrow_amount,
             );
+            let old_status = escrow.status.clone();
             escrow.status = EscrowStatus::Refunded;
             escrow.refunded_at = Some(env.ledger().timestamp());
             escrow.total_refunded = escrow_amount;
-            events::emit_escrow_resolved(&env, escrow_id, &resolver, "refunded_to_client");
+            Self::push_history(&env, &mut escrow, old_status, &resolver, escrow_amount);
+            events::emit_escrow_resolved(
+                &env,
+                escrow_id,
+                &resolver,
+                "refunded_to_client",
+                0,
+                escrow_amount,
+            );
         }
         storage::save_escrow(&env, &escrow);
         Ok(())
     }
 
-    pub fn set_arbiter(env: Env, admin: Address, escrow_id: u64, arbiter: Address) -> Result<(), EscrowError> {
+    pub fn set_arbiter(
+        env: Env,
+        admin: Address,
+        escrow_id: u64,
+        arbiter: Address,
+    ) -> Result<(), EscrowError> {
         Self::require_admin(&env, &admin)?;
         let mut escrow = storage::get_escrow(&env, escrow_id)?;
         escrow.arbiter = Some(arbiter);
@@ -633,18 +700,26 @@ impl EscrowContract {
     ) -> Result<(), EscrowError> {
         Self::require_admin(&env, &admin)?;
         if fee_percent > MAX_FEE_PERCENT {
-            return Err(EscrowError::InvalidFeePercentage);
+            return Err(EscrowError::CannotSetFeeExceedingMax);
         }
         let mut escrow = storage::get_escrow(&env, escrow_id)?;
+        let old_fee = escrow.fee_percent;
         escrow.fee_percent = fee_percent;
+        let old_status = escrow.status.clone();
+        Self::push_history(&env, &mut escrow, old_status, &admin, 0);
         storage::save_escrow(&env, &escrow);
+        events::emit_fee_updated(&env, escrow_id, &admin, old_fee, fee_percent);
         Ok(())
     }
 
-    pub fn set_default_fee(env: Env, admin: Address, fee_percent: u32) -> Result<(), EscrowError> {
+    pub fn set_default_fee(
+        env: Env,
+        admin: Address,
+        fee_percent: u32,
+    ) -> Result<(), EscrowError> {
         Self::require_admin(&env, &admin)?;
         if fee_percent > MAX_FEE_PERCENT {
-            return Err(EscrowError::InvalidFeePercentage);
+            return Err(EscrowError::CannotSetFeeExceedingMax);
         }
         storage::set_default_fee_percent(&env, fee_percent);
         Ok(())
@@ -687,6 +762,24 @@ impl EscrowContract {
         storage::is_paused(&env)
     }
 
+    pub fn set_escrow_ttl(
+        env: Env,
+        admin: Address,
+        ttl: u32,
+    ) -> Result<(), EscrowError> {
+        Self::require_admin(&env, &admin)?;
+        storage::set_escrow_ttl(&env, ttl)
+    }
+
+    pub fn get_escrow_ttl(env: Env) -> u32 {
+        storage::get_escrow_ttl(&env)
+    }
+
+    pub fn cleanup_expired_escrows(env: Env, admin: Address) -> Result<u32, EscrowError> {
+        Self::require_admin(&env, &admin)?;
+        storage::cleanup_expired_escrows(&env, &admin)
+    }
+
     fn require_not_paused(env: &Env) -> Result<(), EscrowError> {
         if storage::is_paused(env) {
             return Err(EscrowError::ContractPaused);
@@ -698,7 +791,7 @@ impl EscrowContract {
         admin.require_auth();
         let contract_admin = storage::get_admin(env).ok_or(EscrowError::AdminRequired)?;
         if *admin != contract_admin {
-            return Err(EscrowError::Unauthorized);
+            return Err(EscrowError::UnauthorizedAction);
         }
         Ok(())
     }
