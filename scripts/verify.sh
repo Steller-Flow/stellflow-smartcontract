@@ -14,7 +14,7 @@ echo "Contract: $CONTRACT_ID"
 echo "Network: $NETWORK"
 echo ""
 
-echo "Checking admin..."
+echo "Step 1: Checking admin..."
 ADMIN=$(soroban contract invoke \
     --id "$CONTRACT_ID" \
     --network "$NETWORK" \
@@ -22,7 +22,7 @@ ADMIN=$(soroban contract invoke \
 echo "Admin: $ADMIN"
 echo ""
 
-echo "Checking pause status..."
+echo "Step 2: Checking pause status..."
 PAUSED=$(soroban contract invoke \
     --id "$CONTRACT_ID" \
     --network "$NETWORK" \
@@ -30,7 +30,15 @@ PAUSED=$(soroban contract invoke \
 echo "Paused: $PAUSED"
 echo ""
 
-echo "Creating test escrow..."
+echo "Step 3: Checking TTL configuration..."
+TTL=$(soroban contract invoke \
+    --id "$CONTRACT_ID" \
+    --network "$NETWORK" \
+    -- get_escrow_ttl 2>&1)
+echo "Escrow TTL: $TTL ledger increments"
+echo ""
+
+echo "Step 4: Creating test escrow..."
 FREELANCER=$(soroban keys generate --network "$NETWORK" --output-pattern tmp)
 FREELANCER_ADDR=$(soroban keys address "$FREELANCER")
 
