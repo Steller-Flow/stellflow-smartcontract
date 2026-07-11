@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use soroban_sdk::{symbol_short, Address, Env, Symbol};
 
 const ESCROW_CREATED: Symbol = symbol_short!("ESC_CRT");
@@ -32,7 +34,12 @@ pub(crate) fn emit_escrow_created(
 ) {
     env.events().publish(
         (ESCROW_CREATED, escrow_id),
-        (client.clone(), freelancer.clone(), amount, env.ledger().timestamp()),
+        (
+            client.clone(),
+            freelancer.clone(),
+            amount,
+            env.ledger().timestamp(),
+        ),
     );
 }
 
@@ -141,12 +148,7 @@ pub(crate) fn emit_escrow_modified(
 ///
 /// Topics: `[ESC_DLN, escrow_id]`
 /// Data: `(client, deadline, timestamp)`
-pub(crate) fn emit_escrow_deadline_set(
-    env: &Env,
-    escrow_id: u64,
-    client: &Address,
-    deadline: u64,
-) {
+pub(crate) fn emit_escrow_deadline_set(env: &Env, escrow_id: u64, client: &Address, deadline: u64) {
     env.events().publish(
         (ESCROW_DEADLINE_SET, escrow_id),
         (client.clone(), deadline, env.ledger().timestamp()),
@@ -230,7 +232,12 @@ pub(crate) fn emit_milestone_released(
 ) {
     env.events().publish(
         (MILESTONE_RELEASED, escrow_id),
-        (milestone_id, client.clone(), amount, env.ledger().timestamp()),
+        (
+            milestone_id,
+            client.clone(),
+            amount,
+            env.ledger().timestamp(),
+        ),
     );
 }
 
@@ -238,12 +245,7 @@ pub(crate) fn emit_milestone_released(
 ///
 /// Topics: `[FEE_COL, escrow_id]`
 /// Data: `(fee_amount, treasury, timestamp)`
-pub(crate) fn emit_fee_collected(
-    env: &Env,
-    escrow_id: u64,
-    fee_amount: i128,
-    treasury: &Address,
-) {
+pub(crate) fn emit_fee_collected(env: &Env, escrow_id: u64, fee_amount: i128, treasury: &Address) {
     env.events().publish(
         (FEE_COLLECTED, escrow_id),
         (fee_amount, treasury.clone(), env.ledger().timestamp()),
@@ -279,7 +281,12 @@ pub(crate) fn emit_contract_upgraded(
 ) {
     env.events().publish(
         (CONTRACT_UPGRADED,),
-        (admin.clone(), old_version, new_version, env.ledger().timestamp()),
+        (
+            admin.clone(),
+            old_version,
+            new_version,
+            env.ledger().timestamp(),
+        ),
     );
 }
 
