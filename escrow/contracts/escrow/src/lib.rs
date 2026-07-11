@@ -38,12 +38,11 @@
 extern crate alloc;
 
 pub mod contract;
-mod errors;
-mod events;
-mod storage;
-mod types;
-
-pub mod contract;
+pub mod errors;
+pub mod events;
+pub mod storage;
+pub mod types;
+pub mod testutils;
 
 pub use contract::EscrowContract;
 pub use errors::EscrowError;
