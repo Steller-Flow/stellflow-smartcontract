@@ -1,7 +1,8 @@
 //! # StellFlow Escrow Contract
 //!
 //! A Soroban smart contract for milestone-based escrow on the Stellar blockchain.
-//! Enables trustless payments between clients and freelancers using USDC stablecoin.
+//! Enables trustless payments between clients and freelancers using any supported
+//! SPL token (not limited to USDC).
 //!
 //! ## Overview
 //!
@@ -32,6 +33,25 @@
 //! - Disputes can be raised by either party
 //! - Only the admin/arbiter can resolve disputes
 //! - Contract can be paused by admin for emergency stops
+//! - Role-based access control for admin operations
+//!
+//! ## Multi-Currency Support
+//!
+//! Each escrow specifies a token address at creation time. All token operations
+//! (transfers, balance checks) use the stored token address, supporting any
+//! SPL-compatible token on Stellar.
+//!
+//! ## Upgrade Mechanism
+//!
+//! The contract tracks its version number. Admin can call `migrate` to perform
+//! version-specific state migrations when upgrading the contract logic.
+//!
+//! ## Role-Based Access Control
+//!
+//! The contract supports the following roles:
+//! - `admin`: Full administrative access (dispute resolution, fee management)
+//! - `fee_manager`: Can manage fee configurations
+//! - `pause_controller`: Can pause/unpause the contract
 
 #![no_std]
 
