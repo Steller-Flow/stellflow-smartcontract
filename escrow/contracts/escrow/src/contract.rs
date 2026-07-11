@@ -1,4 +1,4 @@
-use soroban_sdk::{contract, contractimpl, symbol_short, token, Address, Env, Vec};
+use soroban_sdk::{contract, contractimpl, token, Address, Env, Vec};
 
 use crate::{
     errors::EscrowError,
@@ -102,6 +102,7 @@ impl EscrowContract {
                 description: milestone_descriptions.get(i).unwrap(),
                 amount: milestone_amounts.get(i).unwrap(),
                 status: MilestoneStatus::Pending,
+                released: false,
             });
         }
         let escrow = Escrow {
@@ -409,6 +410,101 @@ impl EscrowContract {
         }
         escrow.milestones = milestones;
         storage::save_escrow(&env, &escrow);
+        Ok(())
+    }
+
+    pub fn submit_milestone(
+        env: Env,
+        freelancer: Address,
+        escrow_id: u64,
+        milestone_id: u32,
+    ) -> Result<(), EscrowError> {
+        Self::require_not_paused(&env)?;
+        freelancer.require_auth();
+        let mut escrow = storage::get_escrow(&env, escrow_id)?;
+        if escrow.freelancer != freelancer {
+            return Err(EscrowError::Unauthorized);
+        }
+        if escrow.status != EscrowStatus::Funded {
+            return Err(EscrowError::InvalidStatus);
+        }
+        let mut milestones = escrow.milestones.clone();
+        let mut found = false;
+        for i in 0..milestones.len() {
+            let mut m = milestones.get(i).unwrap();
+            if m.milestone_id == milestone_id {
+                if m.status != MilestoneStatus::Pending {
+                    return Err(EscrowError::InvalidStateTransition);
+                }
+                m.status = MilestoneStatus::Submitted;
+                milestones.set(i, m);
+                found = true;
+                events::emit_milestone_submitted(&env, escrow_id, milestone_id);
+                break;
+            }
+        }
+        if !found {
+            return Err(EscrowError::MilestoneNotFound);
+        }
+        escrow.milestones = milestones;
+        storage::save_escrow(&env, &escrow);
+        Ok(())
+    }
+
+    pub fn release_milestone(
+        env: Env,
+        client: Address,
+        escrow_id: u64,
+        milestone_id: u32,
+    ) -> Result<(), EscrowError> {
+        Self::require_not_paused(&env)?;
+        client.require_auth();
+        let mut escrow = storage::get_escrow(&env, escrow_id)?;
+        if escrow.client != client {
+            return Err(EscrowError::Unauthorized);
+        }
+        if escrow.status != EscrowStatus::Funded {
+            return Err(EscrowError::InvalidStatus);
+        }
+        let mut milestones = escrow.milestones.clone();
+        let mut found = false;
+        let mut milestone_amount = 0i128;
+        for i in 0..milestones.len() {
+            let mut m = milestones.get(i).unwrap();
+            if m.milestone_id == milestone_id {
+                if m.status != MilestoneStatus::Approved {
+                    return Err(EscrowError::InvalidStateTransition);
+                }
+                if m.released {
+                    return Err(EscrowError::InvalidStateTransition);
+                }
+                milestone_amount = m.amount;
+                m.released = true;
+                milestones.set(i, m);
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            return Err(EscrowError::MilestoneNotFound);
+        }
+        escrow.milestones = milestones;
+        escrow.total_released += milestone_amount;
+        Self::push_history(
+            &env,
+            &mut escrow,
+            EscrowStatus::Funded,
+            &client,
+            milestone_amount,
+        );
+        storage::save_escrow(&env, &escrow);
+        let token_client = token::Client::new(&env, &escrow.token);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &escrow.freelancer,
+            &milestone_amount,
+        );
+        events::emit_milestone_released(&env, escrow_id, milestone_id, milestone_amount);
         Ok(())
     }
 

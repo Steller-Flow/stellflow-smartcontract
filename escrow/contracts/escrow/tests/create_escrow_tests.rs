@@ -85,3 +85,60 @@ fn test_create_escrow_sequential_ids() {
     assert_eq!(id1, 1);
     assert_eq!(id2, 2);
 }
+
+#[test]
+fn test_create_escrow_duplicate_escrow_allowed() {
+    let (env, client, freelancer, token) = setup();
+    let c = contract(&env);
+    let id1 = c.create_escrow(&client, &freelancer, &token, &1000);
+    let id2 = c.create_escrow(&client, &freelancer, &token, &2000);
+    let escrow1 = c.get_escrow(&id1);
+    let escrow2 = c.get_escrow(&id2);
+    assert_eq!(escrow1.amount, 1000);
+    assert_eq!(escrow2.amount, 2000);
+    assert_eq!(escrow1.status, EscrowStatus::Pending);
+    assert_eq!(escrow2.status, EscrowStatus::Pending);
+}
+
+#[test]
+fn test_create_escrow_stores_client_and_freelancer() {
+    let (env, client, freelancer, token) = setup();
+    let c = contract(&env);
+    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000);
+    let escrow = c.get_escrow(&escrow_id);
+    assert_eq!(escrow.client, client);
+    assert_eq!(escrow.freelancer, freelancer);
+}
+
+#[test]
+fn test_create_escrow_initial_status_is_pending() {
+    let (env, client, freelancer, token) = setup();
+    let c = contract(&env);
+    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000);
+    let escrow = c.get_escrow(&escrow_id);
+    assert_eq!(escrow.status, EscrowStatus::Pending);
+    assert!(escrow.funded_at.is_none());
+    assert!(escrow.released_at.is_none());
+    assert!(escrow.refunded_at.is_none());
+    assert!(escrow.cancelled_at.is_none());
+    assert!(escrow.disputed_at.is_none());
+}
+
+#[test]
+fn test_create_escrow_zero_fee_by_default() {
+    let (env, client, freelancer, token) = setup();
+    let c = contract(&env);
+    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000);
+    let escrow = c.get_escrow(&escrow_id);
+    assert_eq!(escrow.fee_percent, 0);
+}
+
+#[test]
+fn test_create_escrow_total_released_and_refunded_zero() {
+    let (env, client, freelancer, token) = setup();
+    let c = contract(&env);
+    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000);
+    let escrow = c.get_escrow(&escrow_id);
+    assert_eq!(escrow.total_released, 0);
+    assert_eq!(escrow.total_refunded, 0);
+}

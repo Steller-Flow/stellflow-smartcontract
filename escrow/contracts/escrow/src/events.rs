@@ -10,6 +10,8 @@ const ESCROW_RESOLVED: Symbol = symbol_short!("ESC_RSV");
 const ESCROW_MODIFIED: Symbol = symbol_short!("ESC_MDF");
 const MILESTONE_APPROVED: Symbol = symbol_short!("MSN_APR");
 const MILESTONE_REJECTED: Symbol = symbol_short!("MSN_RJT");
+const MILESTONE_SUBMITTED: Symbol = symbol_short!("MSN_SUB");
+const MILESTONE_RELEASED: Symbol = symbol_short!("MSN_REL");
 const FEE_COLLECTED: Symbol = symbol_short!("FEE_COL");
 
 pub(crate) fn emit_escrow_created(
@@ -74,6 +76,16 @@ pub(crate) fn emit_milestone_approved(env: &Env, escrow_id: u64, milestone_id: u
 pub(crate) fn emit_milestone_rejected(env: &Env, escrow_id: u64, milestone_id: u32) {
     env.events()
         .publish((MILESTONE_REJECTED, escrow_id), milestone_id);
+}
+
+pub(crate) fn emit_milestone_submitted(env: &Env, escrow_id: u64, milestone_id: u32) {
+    env.events()
+        .publish((MILESTONE_SUBMITTED, escrow_id), milestone_id);
+}
+
+pub(crate) fn emit_milestone_released(env: &Env, escrow_id: u64, milestone_id: u32, amount: i128) {
+    env.events()
+        .publish((MILESTONE_RELEASED, escrow_id), (milestone_id, amount));
 }
 
 pub(crate) fn emit_fee_collected(
