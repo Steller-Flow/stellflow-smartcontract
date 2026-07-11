@@ -2,8 +2,7 @@ use soroban_sdk::{contract, contractimpl, token, Address, Env, Vec};
 
 use crate::{
     errors::EscrowError,
-    events,
-    storage,
+    events, storage,
     types::{Escrow, EscrowEvent, EscrowStatus, Milestone, MilestoneStatus},
 };
 
@@ -42,32 +41,7 @@ pub struct EscrowContract;
 
 #[contractimpl]
 impl EscrowContract {
-    /// Creates a new escrow agreement.
-    ///
-    /// The escrow starts in `Pending` state and must be funded before
-    /// funds can be released or refunded.
-    ///
-    /// # Arguments
-    /// * `client` - Address of the client (must authorize)
-    /// * `freelancer` - Address of the freelancer
-    /// * `token` - Address of the SPL token contract
-    /// * `amount` - Total escrow amount in base token units (must be > 0)
-    /// * `deadline` - Optional deadline timestamp (must be in the future)
-    ///
-    /// # Returns
-    /// The unique escrow ID on success.
-    ///
-    /// # Errors
-    /// - `InvalidAmount` if amount is <= 0
-    /// - `UnauthorizedAction` if client == freelancer
-    /// - `DeadlineInPast` if deadline is in the past
-    /// - `ContractPaused` if contract is paused
-    ///
-    /// # Examples
-    /// ```text
-    /// create_escrow(client, freelancer, token, 10000, None) // No deadline
-    /// create_escrow(client, freelancer, token, 10000, Some(1700000000)) // With deadline
-    /// ```
+    #[allow(clippy::too_many_arguments)]
     pub fn create_escrow(
         env: Env,
         client: Address,
@@ -136,6 +110,7 @@ impl EscrowContract {
     /// - `MilestoneCountMismatch` if descriptions.len() != amounts.len()
     /// - `ZeroMilestones` if no milestones provided
     /// - `MilestoneAmountMismatch` if sum of amounts != total amount
+    #[allow(clippy::too_many_arguments)]
     pub fn create_escrow_with_milestones(
         env: Env,
         client: Address,
@@ -175,7 +150,7 @@ impl EscrowContract {
         let mut milestones = Vec::new(&env);
         for i in 0..milestone_descriptions.len() {
             milestones.push_back(Milestone {
-                milestone_id: i as u32,
+                milestone_id: i,
                 description: milestone_descriptions.get(i).unwrap(),
                 amount: milestone_amounts.get(i).unwrap(),
                 status: MilestoneStatus::Pending,
@@ -229,7 +204,7 @@ impl EscrowContract {
         }
         let token_client = token::Client::new(&env, &escrow.token);
         let escrow_amount = escrow.amount;
-        token_client.transfer(&client, &env.current_contract_address(), &escrow_amount);
+        token_client.transfer(&client, env.current_contract_address(), &escrow_amount);
         let old_status = escrow.status.clone();
         escrow.status = EscrowStatus::Funded;
         escrow.funded_at = Some(env.ledger().timestamp());
@@ -277,11 +252,7 @@ impl EscrowContract {
         );
         if fee > 0 {
             if let Some(treasury) = storage::get_treasury(&env) {
-                token_client.transfer(
-                    &env.current_contract_address(),
-                    &treasury,
-                    &fee,
-                );
+                token_client.transfer(&env.current_contract_address(), &treasury, &fee);
                 events::emit_fee_collected(&env, escrow_id, fee, &treasury);
             }
         }
@@ -316,11 +287,7 @@ impl EscrowContract {
         }
         let token_client = token::Client::new(&env, &escrow.token);
         let refund_amount = escrow.amount;
-        token_client.transfer(
-            &env.current_contract_address(),
-            &client,
-            &refund_amount,
-        );
+        token_client.transfer(&env.current_contract_address(), &client, &refund_amount);
         let old_status = escrow.status.clone();
         escrow.status = EscrowStatus::Refunded;
         escrow.refunded_at = Some(env.ledger().timestamp());
@@ -399,7 +366,13 @@ impl EscrowContract {
         let old_status = escrow.status.clone();
         Self::push_history(&env, &mut escrow, old_status, &client, 0);
         storage::save_escrow(&env, &escrow);
-        events::emit_escrow_modified(&env, escrow_id, &client, new_amount, new_freelancer.as_ref());
+        events::emit_escrow_modified(
+            &env,
+            escrow_id,
+            &client,
+            new_amount,
+            new_freelancer.as_ref(),
+        );
         Ok(())
     }
 
@@ -457,11 +430,7 @@ impl EscrowContract {
         }
         let token_client = token::Client::new(&env, &escrow.token);
         let claim_amount = escrow.amount;
-        token_client.transfer(
-            &env.current_contract_address(),
-            &client,
-            &claim_amount,
-        );
+        token_client.transfer(&env.current_contract_address(), &client, &claim_amount);
         let old_status = escrow.status.clone();
         escrow.status = EscrowStatus::Refunded;
         escrow.refunded_at = Some(env.ledger().timestamp());
@@ -695,6 +664,7 @@ impl EscrowContract {
     ///
     /// Can release funds to freelancer, refund to client, or split the funds.
     /// Only callable by the admin address.
+    #[allow(clippy::too_many_arguments)]
     pub fn resolve_dispute(
         env: Env,
         resolver: Address,
@@ -851,11 +821,7 @@ impl EscrowContract {
     /// Sets the default fee percentage for all new escrows.
     ///
     /// Only callable by the admin. Fee cannot exceed 10%.
-    pub fn set_default_fee(
-        env: Env,
-        admin: Address,
-        fee_percent: u32,
-    ) -> Result<(), EscrowError> {
+    pub fn set_default_fee(env: Env, admin: Address, fee_percent: u32) -> Result<(), EscrowError> {
         Self::require_admin(&env, &admin)?;
         if fee_percent > MAX_FEE_PERCENT {
             return Err(EscrowError::CannotSetFeeExceedingMax);
@@ -927,11 +893,7 @@ impl EscrowContract {
     ///
     /// Only callable by the admin. TTL must be between 1,000,000 and 7,776,000
     /// ledger increments.
-    pub fn set_escrow_ttl(
-        env: Env,
-        admin: Address,
-        ttl: u32,
-    ) -> Result<(), EscrowError> {
+    pub fn set_escrow_ttl(env: Env, admin: Address, ttl: u32) -> Result<(), EscrowError> {
         Self::require_admin(&env, &admin)?;
         storage::set_escrow_ttl(&env, ttl)
     }
