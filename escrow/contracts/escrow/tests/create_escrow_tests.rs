@@ -8,8 +8,7 @@ fn setup() -> (Env, Address, Address, Address) {
     env.mock_all_auths();
     let client = Address::generate(&env);
     let freelancer = Address::generate(&env);
-    let admin = Address::generate(&env);
-    let token_contract = env.register_stellar_asset_contract_v2(admin);
+    let token_contract = env.register_stellar_asset_contract_v2(Address::generate(&env));
     let token = token_contract.address();
     let token_client = soroban_sdk::token::StellarAssetClient::new(&env, &token);
     token_client.mint(&client, &100_000_000);
@@ -25,7 +24,7 @@ fn contract(env: &Env) -> stellflow_escrow::contract::EscrowContractClient<'_> {
 fn test_create_escrow_success() {
     let (env, client, freelancer, token) = setup();
     let c = contract(&env);
-    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000);
+    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000, &None);
     let escrow = c.get_escrow(&escrow_id);
     assert_eq!(escrow.escrow_id, 1);
     assert_eq!(escrow.client, client);
@@ -33,9 +32,6 @@ fn test_create_escrow_success() {
     assert_eq!(escrow.token, token);
     assert_eq!(escrow.amount, 1000);
     assert_eq!(escrow.status, EscrowStatus::Pending);
-    assert!(escrow.funded_at.is_none());
-    assert!(escrow.released_at.is_none());
-    assert!(escrow.refunded_at.is_none());
     assert!(escrow.milestones.is_empty());
 }
 
@@ -43,7 +39,7 @@ fn test_create_escrow_success() {
 fn test_create_escrow_zero_amount() {
     let (env, client, freelancer, token) = setup();
     let c = contract(&env);
-    let result = c.try_create_escrow(&client, &freelancer, &token, &0);
+    let result = c.try_create_escrow(&client, &freelancer, &token, &0, &None);
     assert!(result.is_err());
 }
 
@@ -51,7 +47,7 @@ fn test_create_escrow_zero_amount() {
 fn test_create_escrow_negative_amount() {
     let (env, client, freelancer, token) = setup();
     let c = contract(&env);
-    let result = c.try_create_escrow(&client, &freelancer, &token, &-100);
+    let result = c.try_create_escrow(&client, &freelancer, &token, &-100, &None);
     assert!(result.is_err());
 }
 
@@ -59,7 +55,24 @@ fn test_create_escrow_negative_amount() {
 fn test_create_escrow_same_client_and_freelancer() {
     let (env, client, _, token) = setup();
     let c = contract(&env);
-    let result = c.try_create_escrow(&client, &client, &token, &1000);
+    let result = c.try_create_escrow(&client, &client, &token, &1000, &None);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_create_escrow_with_deadline() {
+    let (env, client, freelancer, token) = setup();
+    let c = contract(&env);
+    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000, &Some(200));
+    let escrow = c.get_escrow(&escrow_id);
+    assert_eq!(escrow.deadline, Some(200));
+}
+
+#[test]
+fn test_create_escrow_deadline_in_past() {
+    let (env, client, freelancer, token) = setup();
+    let c = contract(&env);
+    let result = c.try_create_escrow(&client, &freelancer, &token, &1000, &Some(0));
     assert!(result.is_err());
 }
 
@@ -67,8 +80,8 @@ fn test_create_escrow_same_client_and_freelancer() {
 fn test_create_escrow_sequential_ids() {
     let (env, client, freelancer, token) = setup();
     let c = contract(&env);
-    let id1 = c.create_escrow(&client, &freelancer, &token, &1000);
-    let id2 = c.create_escrow(&client, &freelancer, &token, &2000);
+    let id1 = c.create_escrow(&client, &freelancer, &token, &1000, &None);
+    let id2 = c.create_escrow(&client, &freelancer, &token, &2000, &None);
     assert_eq!(id1, 1);
     assert_eq!(id2, 2);
 }

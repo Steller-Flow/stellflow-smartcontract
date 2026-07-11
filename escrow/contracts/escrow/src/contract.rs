@@ -20,6 +20,7 @@ impl EscrowContract {
         freelancer: Address,
         token: Address,
         amount: i128,
+        deadline: Option<u64>,
     ) -> Result<u64, EscrowError> {
         Self::require_not_paused(&env)?;
         if amount <= 0 {
@@ -27,6 +28,11 @@ impl EscrowContract {
         }
         if client == freelancer {
             return Err(EscrowError::Unauthorized);
+        }
+        if let Some(dl) = deadline {
+            if dl <= env.ledger().timestamp() {
+                return Err(EscrowError::DeadlineInPast);
+            }
         }
         client.require_auth();
         let escrow_id = storage::next_escrow_id(&env);
@@ -44,7 +50,7 @@ impl EscrowContract {
             refunded_at: None,
             cancelled_at: None,
             disputed_at: None,
-            deadline: None,
+            deadline,
             milestones: Vec::new(&env),
             arbiter: None,
             fee_percent: storage::get_default_fee_percent(&env),
@@ -529,6 +535,7 @@ impl EscrowContract {
         resolver: Address,
         escrow_id: u64,
         release_to_freelancer: bool,
+        split_to_freelancer: Option<i128>,
     ) -> Result<(), EscrowError> {
         Self::require_not_paused(&env)?;
         resolver.require_auth();
@@ -544,7 +551,40 @@ impl EscrowContract {
         let escrow_amount = escrow.amount;
         let escrow_client = escrow.client.clone();
         let escrow_freelancer = escrow.freelancer.clone();
-        if release_to_freelancer {
+
+        if let Some(freelancer_amount) = split_to_freelancer {
+            if freelancer_amount < 0 || freelancer_amount > escrow_amount {
+                return Err(EscrowError::InvalidAmount);
+            }
+            let client_amount = escrow_amount - freelancer_amount;
+            if freelancer_amount > 0 {
+                token_client.transfer(
+                    &env.current_contract_address(),
+                    &escrow_freelancer,
+                    &freelancer_amount,
+                );
+            }
+            if client_amount > 0 {
+                token_client.transfer(
+                    &env.current_contract_address(),
+                    &escrow_client,
+                    &client_amount,
+                );
+            }
+            let fee = Self::calculate_fee(&escrow);
+            let net_freelancer = freelancer_amount - fee;
+            if fee > 0 && net_freelancer > 0 {
+                if let Some(treasury) = storage::get_treasury(&env) {
+                    token_client.transfer(&env.current_contract_address(), &treasury, &fee);
+                    events::emit_fee_collected(&env, escrow_id, fee, &treasury);
+                }
+            }
+            escrow.status = EscrowStatus::Released;
+            escrow.released_at = Some(env.ledger().timestamp());
+            escrow.total_released = net_freelancer;
+            escrow.total_refunded = client_amount;
+            events::emit_escrow_resolved(&env, escrow_id, &resolver, "split_funds");
+        } else if release_to_freelancer {
             let fee = Self::calculate_fee(&escrow);
             let release_amount = escrow_amount - fee;
             token_client.transfer(

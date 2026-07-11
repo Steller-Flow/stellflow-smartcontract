@@ -37,6 +37,7 @@
 
 extern crate alloc;
 
+pub mod contract;
 mod errors;
 mod events;
 mod storage;

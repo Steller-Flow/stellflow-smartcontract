@@ -8,8 +8,7 @@ fn setup() -> (Env, Address, Address, Address) {
     env.mock_all_auths();
     let client = Address::generate(&env);
     let freelancer = Address::generate(&env);
-    let admin = Address::generate(&env);
-    let token_contract = env.register_stellar_asset_contract_v2(admin);
+    let token_contract = env.register_stellar_asset_contract_v2(Address::generate(&env));
     let token = token_contract.address();
     let token_client = soroban_sdk::token::StellarAssetClient::new(&env, &token);
     token_client.mint(&client, &100_000_000);
@@ -25,7 +24,7 @@ fn contract(env: &Env) -> stellflow_escrow::contract::EscrowContractClient<'_> {
 fn test_release_success() {
     let (env, client, freelancer, token) = setup();
     let c = contract(&env);
-    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000);
+    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000, &None);
     c.fund_escrow(&client, &escrow_id);
     c.release(&client, &escrow_id);
     let escrow = c.get_escrow(&escrow_id);
@@ -38,7 +37,7 @@ fn test_release_success() {
 fn test_release_not_funded() {
     let (env, client, freelancer, token) = setup();
     let c = contract(&env);
-    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000);
+    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000, &None);
     let result = c.try_release(&client, &escrow_id);
     assert!(result.is_err());
 }
@@ -48,7 +47,7 @@ fn test_release_wrong_client() {
     let (env, client, freelancer, token) = setup();
     let wrong_client = Address::generate(&env);
     let c = contract(&env);
-    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000);
+    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000, &None);
     c.fund_escrow(&client, &escrow_id);
     let result = c.try_release(&wrong_client, &escrow_id);
     assert!(result.is_err());
@@ -58,7 +57,7 @@ fn test_release_wrong_client() {
 fn test_release_already_released() {
     let (env, client, freelancer, token) = setup();
     let c = contract(&env);
-    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000);
+    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000, &None);
     c.fund_escrow(&client, &escrow_id);
     c.release(&client, &escrow_id);
     let result = c.try_release(&client, &escrow_id);
@@ -69,7 +68,7 @@ fn test_release_already_released() {
 fn test_release_already_refunded() {
     let (env, client, freelancer, token) = setup();
     let c = contract(&env);
-    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000);
+    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000, &None);
     c.fund_escrow(&client, &escrow_id);
     c.refund(&client, &escrow_id);
     let result = c.try_release(&client, &escrow_id);
@@ -80,7 +79,7 @@ fn test_release_already_refunded() {
 fn test_release_sets_released_at_timestamp() {
     let (env, client, freelancer, token) = setup();
     let c = contract(&env);
-    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000);
+    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000, &None);
     c.fund_escrow(&client, &escrow_id);
     c.release(&client, &escrow_id);
     let escrow = c.get_escrow(&escrow_id);
@@ -91,7 +90,7 @@ fn test_release_sets_released_at_timestamp() {
 fn test_release_tracks_total_released() {
     let (env, client, freelancer, token) = setup();
     let c = contract(&env);
-    let escrow_id = c.create_escrow(&client, &freelancer, &token, &5000);
+    let escrow_id = c.create_escrow(&client, &freelancer, &token, &5000, &None);
     c.fund_escrow(&client, &escrow_id);
     c.release(&client, &escrow_id);
     let escrow = c.get_escrow(&escrow_id);
@@ -102,7 +101,7 @@ fn test_release_tracks_total_released() {
 fn test_refund_success() {
     let (env, client, freelancer, token) = setup();
     let c = contract(&env);
-    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000);
+    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000, &None);
     c.fund_escrow(&client, &escrow_id);
     c.refund(&client, &escrow_id);
     let escrow = c.get_escrow(&escrow_id);
@@ -115,7 +114,7 @@ fn test_refund_success() {
 fn test_refund_not_funded() {
     let (env, client, freelancer, token) = setup();
     let c = contract(&env);
-    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000);
+    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000, &None);
     let result = c.try_refund(&client, &escrow_id);
     assert!(result.is_err());
 }
@@ -125,7 +124,7 @@ fn test_refund_wrong_client() {
     let (env, client, freelancer, token) = setup();
     let wrong_client = Address::generate(&env);
     let c = contract(&env);
-    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000);
+    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000, &None);
     c.fund_escrow(&client, &escrow_id);
     let result = c.try_refund(&wrong_client, &escrow_id);
     assert!(result.is_err());
@@ -135,7 +134,7 @@ fn test_refund_wrong_client() {
 fn test_refund_already_refunded() {
     let (env, client, freelancer, token) = setup();
     let c = contract(&env);
-    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000);
+    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000, &None);
     c.fund_escrow(&client, &escrow_id);
     c.refund(&client, &escrow_id);
     let result = c.try_refund(&client, &escrow_id);
@@ -146,7 +145,7 @@ fn test_refund_already_refunded() {
 fn test_refund_already_released() {
     let (env, client, freelancer, token) = setup();
     let c = contract(&env);
-    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000);
+    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000, &None);
     c.fund_escrow(&client, &escrow_id);
     c.release(&client, &escrow_id);
     let result = c.try_refund(&client, &escrow_id);
@@ -157,7 +156,7 @@ fn test_refund_already_released() {
 fn test_refund_sets_refunded_at_timestamp() {
     let (env, client, freelancer, token) = setup();
     let c = contract(&env);
-    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000);
+    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000, &None);
     c.fund_escrow(&client, &escrow_id);
     c.refund(&client, &escrow_id);
     let escrow = c.get_escrow(&escrow_id);
@@ -168,7 +167,7 @@ fn test_refund_sets_refunded_at_timestamp() {
 fn test_refund_tracks_total_refunded() {
     let (env, client, freelancer, token) = setup();
     let c = contract(&env);
-    let escrow_id = c.create_escrow(&client, &freelancer, &token, &3000);
+    let escrow_id = c.create_escrow(&client, &freelancer, &token, &3000, &None);
     c.fund_escrow(&client, &escrow_id);
     c.refund(&client, &escrow_id);
     let escrow = c.get_escrow(&escrow_id);

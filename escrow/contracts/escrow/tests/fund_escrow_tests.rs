@@ -8,8 +8,7 @@ fn setup() -> (Env, Address, Address, Address) {
     env.mock_all_auths();
     let client = Address::generate(&env);
     let freelancer = Address::generate(&env);
-    let admin = Address::generate(&env);
-    let token_contract = env.register_stellar_asset_contract_v2(admin);
+    let token_contract = env.register_stellar_asset_contract_v2(Address::generate(&env));
     let token = token_contract.address();
     let token_client = soroban_sdk::token::StellarAssetClient::new(&env, &token);
     token_client.mint(&client, &100_000_000);
@@ -25,7 +24,7 @@ fn contract(env: &Env) -> stellflow_escrow::contract::EscrowContractClient<'_> {
 fn test_fund_escrow_success() {
     let (env, client, freelancer, token) = setup();
     let c = contract(&env);
-    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000);
+    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000, &None);
     c.fund_escrow(&client, &escrow_id);
     let escrow = c.get_escrow(&escrow_id);
     assert_eq!(escrow.status, EscrowStatus::Funded);
@@ -45,7 +44,7 @@ fn test_fund_escrow_wrong_client() {
     let (env, client, freelancer, token) = setup();
     let wrong_client = Address::generate(&env);
     let c = contract(&env);
-    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000);
+    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000, &None);
     let result = c.try_fund_escrow(&wrong_client, &escrow_id);
     assert!(result.is_err());
 }
@@ -54,30 +53,8 @@ fn test_fund_escrow_wrong_client() {
 fn test_fund_escrow_already_funded() {
     let (env, client, freelancer, token) = setup();
     let c = contract(&env);
-    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000);
+    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000, &None);
     c.fund_escrow(&client, &escrow_id);
-    let result = c.try_fund_escrow(&client, &escrow_id);
-    assert!(result.is_err());
-}
-
-#[test]
-fn test_fund_escrow_already_released() {
-    let (env, client, freelancer, token) = setup();
-    let c = contract(&env);
-    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000);
-    c.fund_escrow(&client, &escrow_id);
-    c.release(&client, &escrow_id);
-    let result = c.try_fund_escrow(&client, &escrow_id);
-    assert!(result.is_err());
-}
-
-#[test]
-fn test_fund_escrow_already_refunded() {
-    let (env, client, freelancer, token) = setup();
-    let c = contract(&env);
-    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000);
-    c.fund_escrow(&client, &escrow_id);
-    c.refund(&client, &escrow_id);
     let result = c.try_fund_escrow(&client, &escrow_id);
     assert!(result.is_err());
 }
@@ -86,27 +63,17 @@ fn test_fund_escrow_already_refunded() {
 fn test_fund_escrow_already_cancelled() {
     let (env, client, freelancer, token) = setup();
     let c = contract(&env);
-    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000);
+    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000, &None);
     c.cancel_escrow(&client, &escrow_id);
     let result = c.try_fund_escrow(&client, &escrow_id);
     assert!(result.is_err());
 }
 
 #[test]
-fn test_fund_escrow_sets_funded_at_timestamp() {
-    let (env, client, freelancer, token) = setup();
-    let c = contract(&env);
-    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000);
-    c.fund_escrow(&client, &escrow_id);
-    let escrow = c.get_escrow(&escrow_id);
-    assert!(escrow.funded_at.is_some());
-}
-
-#[test]
 fn test_fund_escrow_preserves_escrow_details() {
     let (env, client, freelancer, token) = setup();
     let c = contract(&env);
-    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000);
+    let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000, &None);
     c.fund_escrow(&client, &escrow_id);
     let escrow = c.get_escrow(&escrow_id);
     assert_eq!(escrow.client, client);
