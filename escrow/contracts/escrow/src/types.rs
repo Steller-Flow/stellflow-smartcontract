@@ -18,6 +18,7 @@ pub struct Milestone {
     pub description: soroban_sdk::String,
     pub amount: i128,
     pub status: MilestoneStatus,
+    pub released: bool,
 }
 
 #[contracttype]
