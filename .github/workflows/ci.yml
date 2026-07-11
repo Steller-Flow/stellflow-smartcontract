@@ -95,7 +95,7 @@ jobs:
         run: |
           soroban contract optimize \
             --wasm escrow/target/release/libstellflow_escrow.so \
-            --output escrow/target/release/stellflow_escrow_optimized.wasm
+            > escrow/target/release/stellflow_escrow_optimized.wasm
           OPT_SIZE=$(stat -f%z escrow/target/release/stellflow_escrow_optimized.wasm 2>/dev/null || stat -c%s escrow/target/release/stellflow_escrow_optimized.wasm 2>/dev/null)
           echo "Optimized contract size: $OPT_SIZE bytes"
       - name: Upload contract artifact
