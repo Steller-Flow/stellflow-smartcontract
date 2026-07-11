@@ -29,7 +29,7 @@ pub fn get_escrow_ttl(env: &Env) -> u32 {
 /// # Errors
 /// Returns `EscrowError::InvalidAmount` if TTL is outside the allowed range.
 pub fn set_escrow_ttl(env: &Env, ttl: u32) -> Result<(), EscrowError> {
-    if ttl < MIN_TTL || ttl > MAX_TTL {
+    if !(MIN_TTL..=MAX_TTL).contains(&ttl) {
         return Err(EscrowError::InvalidAmount);
     }
     env.storage().instance().set(&DataKey::EscrowTTL, &ttl);
@@ -51,9 +51,7 @@ pub fn read_counter(env: &Env) -> u64 {
 /// Also extends the instance storage TTL to match the configured escrow TTL.
 pub fn next_escrow_id(env: &Env) -> u64 {
     let next = read_counter(env) + 1;
-    env.storage()
-        .instance()
-        .set(&DataKey::EscrowCounter, &next);
+    env.storage().instance().set(&DataKey::EscrowCounter, &next);
     let ttl = get_escrow_ttl(env);
     env.storage().instance().extend_ttl(ttl, ttl);
     next
@@ -66,9 +64,7 @@ pub fn save_escrow(env: &Env, escrow: &Escrow) {
     let key = DataKey::Escrow(escrow.escrow_id);
     env.storage().persistent().set(&key, escrow);
     let ttl = get_escrow_ttl(env);
-    env.storage()
-        .persistent()
-        .extend_ttl(&key, ttl, ttl);
+    env.storage().persistent().extend_ttl(&key, ttl, ttl);
 }
 
 /// Retrieves an escrow from persistent storage.
@@ -84,9 +80,7 @@ pub fn get_escrow(env: &Env, escrow_id: u64) -> Result<Escrow, EscrowError> {
 
 /// Checks whether an escrow exists in storage.
 pub fn escrow_exists(env: &Env, escrow_id: u64) -> bool {
-    env.storage()
-        .persistent()
-        .has(&DataKey::Escrow(escrow_id))
+    env.storage().persistent().has(&DataKey::Escrow(escrow_id))
 }
 
 /// Cleans up expired terminal escrows from storage.
@@ -126,9 +120,7 @@ pub fn cleanup_expired_escrows(env: &Env, admin: &Address) -> Result<u32, Escrow
                     .or(escrow.cancelled_at)
                     .unwrap_or(0);
                 if terminal_time > 0 && timestamp.saturating_sub(terminal_time) > ttl_seconds {
-                    env.storage()
-                        .persistent()
-                        .remove(&DataKey::Escrow(id));
+                    env.storage().persistent().remove(&DataKey::Escrow(id));
                     cleaned += 1;
                 }
             }
@@ -139,7 +131,9 @@ pub fn cleanup_expired_escrows(env: &Env, admin: &Address) -> Result<u32, Escrow
 
 /// Returns the admin address, or `None` if not initialized.
 pub fn get_admin(env: &Env) -> Option<Address> {
-    env.storage().instance().get::<DataKey, Address>(&DataKey::Admin)
+    env.storage()
+        .instance()
+        .get::<DataKey, Address>(&DataKey::Admin)
 }
 
 /// Sets the admin address in instance storage.
@@ -224,7 +218,11 @@ pub fn has_role(env: &Env, address: &Address, role: &soroban_sdk::String) -> boo
 }
 
 /// Assigns a role to an address.
-pub fn assign_role(env: &Env, address: &Address, role: &soroban_sdk::String) -> Result<(), EscrowError> {
+pub fn assign_role(
+    env: &Env,
+    address: &Address,
+    role: &soroban_sdk::String,
+) -> Result<(), EscrowError> {
     let key = DataKey::Role(address.clone());
     let mut roles = env
         .storage()
@@ -242,7 +240,11 @@ pub fn assign_role(env: &Env, address: &Address, role: &soroban_sdk::String) -> 
 }
 
 /// Removes a role from an address.
-pub fn remove_role(env: &Env, address: &Address, role: &soroban_sdk::String) -> Result<(), EscrowError> {
+pub fn remove_role(
+    env: &Env,
+    address: &Address,
+    role: &soroban_sdk::String,
+) -> Result<(), EscrowError> {
     let key = DataKey::Role(address.clone());
     let roles = env
         .storage()
