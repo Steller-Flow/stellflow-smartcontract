@@ -1,7 +1,8 @@
+#![allow(deprecated)]
 #![cfg(test)]
 
-use soroban_sdk::{testutils::Address as _, testutils::Events, Address, Env};
-use stellflow_escrow::{EscrowContract, EscrowStatus};
+use soroban_sdk::{testutils::Address as _, Address, Env};
+use stellflow_escrow::EscrowContract;
 
 fn setup() -> (Env, Address, Address, Address) {
     let env = Env::default();
@@ -49,7 +50,12 @@ fn test_modify_escrow_change_both() {
     let new_freelancer = Address::generate(&env);
     let c = contract(&env);
     let escrow_id = c.create_escrow(&client, &freelancer, &token, &10000, &None);
-    c.modify_escrow(&client, &escrow_id, &Some(new_freelancer.clone()), &Some(5000));
+    c.modify_escrow(
+        &client,
+        &escrow_id,
+        &Some(new_freelancer.clone()),
+        &Some(5000),
+    );
     let escrow = c.get_escrow(&escrow_id);
     assert_eq!(escrow.freelancer, new_freelancer);
     assert_eq!(escrow.amount, 5000);
