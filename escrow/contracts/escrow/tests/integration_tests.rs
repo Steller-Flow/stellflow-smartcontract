@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 #![cfg(test)]
 
 use soroban_sdk::{testutils::Address as _, Address, Env, String, Vec};
@@ -80,14 +81,28 @@ fn test_milestone_lifecycle() {
     let mut amounts = Vec::new(&env);
     amounts.push_back(5000);
     amounts.push_back(5000);
-    let escrow_id = c.create_escrow_with_milestones(&client, &freelancer, &token, &10000, &descs, &amounts, &None);
+    let escrow_id = c.create_escrow_with_milestones(
+        &client,
+        &freelancer,
+        &token,
+        &10000,
+        &descs,
+        &amounts,
+        &None,
+    );
     c.fund_escrow(&client, &escrow_id);
     c.approve_milestone(&client, &escrow_id, &0);
     let escrow = c.get_escrow(&escrow_id);
-    assert_eq!(escrow.milestones.get(0).unwrap().status, MilestoneStatus::Approved);
+    assert_eq!(
+        escrow.milestones.get(0).unwrap().status,
+        MilestoneStatus::Approved
+    );
     c.approve_milestone(&client, &escrow_id, &1);
     let escrow = c.get_escrow(&escrow_id);
-    assert_eq!(escrow.milestones.get(1).unwrap().status, MilestoneStatus::Approved);
+    assert_eq!(
+        escrow.milestones.get(1).unwrap().status,
+        MilestoneStatus::Approved
+    );
 }
 
 #[test]
@@ -107,7 +122,12 @@ fn test_modify_before_funding() {
     let c = contract(&env);
     let escrow_id = c.create_escrow(&client, &freelancer, &token, &1000, &None);
     let new_freelancer = Address::generate(&env);
-    c.modify_escrow(&client, &escrow_id, &Some(new_freelancer.clone()), &Some(2000));
+    c.modify_escrow(
+        &client,
+        &escrow_id,
+        &Some(new_freelancer.clone()),
+        &Some(2000),
+    );
     let escrow = c.get_escrow(&escrow_id);
     assert_eq!(escrow.freelancer, new_freelancer);
     assert_eq!(escrow.amount, 2000);
@@ -133,7 +153,15 @@ fn test_milestone_amount_mismatch() {
     let mut amounts = Vec::new(&env);
     amounts.push_back(5000);
     amounts.push_back(5000);
-    let result = c.try_create_escrow_with_milestones(&client, &freelancer, &token, &11000, &descs, &amounts, &None);
+    let result = c.try_create_escrow_with_milestones(
+        &client,
+        &freelancer,
+        &token,
+        &11000,
+        &descs,
+        &amounts,
+        &None,
+    );
     assert!(result.is_err());
 }
 
@@ -146,6 +174,14 @@ fn test_milestone_description_amount_count_mismatch() {
     let mut amounts = Vec::new(&env);
     amounts.push_back(5000);
     amounts.push_back(5000);
-    let result = c.try_create_escrow_with_milestones(&client, &freelancer, &token, &10000, &descs, &amounts, &None);
+    let result = c.try_create_escrow_with_milestones(
+        &client,
+        &freelancer,
+        &token,
+        &10000,
+        &descs,
+        &amounts,
+        &None,
+    );
     assert!(result.is_err());
 }

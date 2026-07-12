@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 #[cfg(test)]
 use soroban_sdk::{testutils::Address as _, Address, Env};
 

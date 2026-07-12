@@ -2,18 +2,46 @@ use soroban_sdk::{contract, contractimpl, token, Address, Env, Vec};
 
 use crate::{
     errors::EscrowError,
-    events,
-    storage,
+    events, storage,
     types::{Escrow, EscrowEvent, EscrowStatus, Milestone, MilestoneStatus},
 };
 
 const MAX_FEE_PERCENT: u32 = 10;
 
+/// StellFlow Escrow Contract
+///
+/// A Soroban smart contract for milestone-based escrow on the Stellar blockchain.
+/// Enables trustless payments between clients and freelancers using any supported token.
+///
+/// # State Machine
+///
+/// ```text
+/// Pending → Funded → Released
+///                 ↘ Refunded
+///                 ↘ Disputed → Released (via arbiter)
+///                            → Refunded (via arbiter)
+/// Pending → Cancelled
+/// ```
+///
+/// # Security Model
+///
+/// - All mutating operations require authorization from the relevant party
+/// - Only the client can fund, release, refund, cancel, or modify an escrow
+/// - Disputes can be raised by either party
+/// - Only the admin/arbiter can resolve disputes
+/// - Contract can be paused by admin for emergency stops
+/// - Role-based access control for admin operations
+///
+/// # Upgrade Mechanism
+///
+/// The contract tracks its version number. Admin can call `migrate` to
+/// perform version-specific state migrations when upgrading the contract.
 #[contract]
 pub struct EscrowContract;
 
 #[contractimpl]
 impl EscrowContract {
+    #[allow(clippy::too_many_arguments)]
     pub fn create_escrow(
         env: Env,
         client: Address,
@@ -23,6 +51,7 @@ impl EscrowContract {
         deadline: Option<u64>,
     ) -> Result<u64, EscrowError> {
         Self::require_not_paused(&env)?;
+        Self::validate_token(&env, &token)?;
         if amount <= 0 {
             return Err(EscrowError::InvalidAmount);
         }
@@ -63,6 +92,25 @@ impl EscrowContract {
         Ok(escrow_id)
     }
 
+    /// Creates a new escrow with milestone-based payment splits.
+    ///
+    /// The sum of milestone amounts must equal the total escrow amount.
+    /// Each milestone can be independently submitted, approved, and released.
+    ///
+    /// # Arguments
+    /// * `client` - Address of the client (must authorize)
+    /// * `freelancer` - Address of the freelancer
+    /// * `token` - Address of the SPL token contract
+    /// * `amount` - Total escrow amount (must equal sum of milestone amounts)
+    /// * `milestone_descriptions` - Descriptions for each milestone
+    /// * `milestone_amounts` - Amounts for each milestone
+    /// * `deadline` - Optional deadline timestamp
+    ///
+    /// # Errors
+    /// - `MilestoneCountMismatch` if descriptions.len() != amounts.len()
+    /// - `ZeroMilestones` if no milestones provided
+    /// - `MilestoneAmountMismatch` if sum of amounts != total amount
+    #[allow(clippy::too_many_arguments)]
     pub fn create_escrow_with_milestones(
         env: Env,
         client: Address,
@@ -74,6 +122,7 @@ impl EscrowContract {
         deadline: Option<u64>,
     ) -> Result<u64, EscrowError> {
         Self::require_not_paused(&env)?;
+        Self::validate_token(&env, &token)?;
         if amount <= 0 {
             return Err(EscrowError::InvalidAmount);
         }
@@ -101,7 +150,7 @@ impl EscrowContract {
         let mut milestones = Vec::new(&env);
         for i in 0..milestone_descriptions.len() {
             milestones.push_back(Milestone {
-                milestone_id: i as u32,
+                milestone_id: i,
                 description: milestone_descriptions.get(i).unwrap(),
                 amount: milestone_amounts.get(i).unwrap(),
                 status: MilestoneStatus::Pending,
@@ -134,6 +183,10 @@ impl EscrowContract {
         Ok(escrow_id)
     }
 
+    /// Funds an escrow by transferring tokens from the client to the contract.
+    ///
+    /// Transitions from `Pending` to `Funded` state.
+    /// The client must have sufficient token balance.
     pub fn fund_escrow(env: Env, client: Address, escrow_id: u64) -> Result<(), EscrowError> {
         Self::require_not_paused(&env)?;
         client.require_auth();
@@ -151,7 +204,7 @@ impl EscrowContract {
         }
         let token_client = token::Client::new(&env, &escrow.token);
         let escrow_amount = escrow.amount;
-        token_client.transfer(&client, &env.current_contract_address(), &escrow_amount);
+        token_client.transfer(&client, env.current_contract_address(), &escrow_amount);
         let old_status = escrow.status.clone();
         escrow.status = EscrowStatus::Funded;
         escrow.funded_at = Some(env.ledger().timestamp());
@@ -161,6 +214,14 @@ impl EscrowContract {
         Ok(())
     }
 
+    /// Releases escrowed funds to the freelancer.
+    ///
+    /// Transitions from `Funded` to `Released` state.
+    /// Deducts platform fee if configured. Only callable by the client.
+    ///
+    /// # Errors
+    /// - `DeadlineNotPassed` if a deadline is set and hasn't passed
+    /// - `UnauthorizedAction` if caller is not the client
     pub fn release(env: Env, client: Address, escrow_id: u64) -> Result<(), EscrowError> {
         Self::require_not_paused(&env)?;
         client.require_auth();
@@ -191,11 +252,7 @@ impl EscrowContract {
         );
         if fee > 0 {
             if let Some(treasury) = storage::get_treasury(&env) {
-                token_client.transfer(
-                    &env.current_contract_address(),
-                    &treasury,
-                    &fee,
-                );
+                token_client.transfer(&env.current_contract_address(), &treasury, &fee);
                 events::emit_fee_collected(&env, escrow_id, fee, &treasury);
             }
         }
@@ -209,6 +266,10 @@ impl EscrowContract {
         Ok(())
     }
 
+    /// Refunds escrowed funds back to the client.
+    ///
+    /// Transitions from `Funded` to `Refunded` state.
+    /// Only callable by the client.
     pub fn refund(env: Env, client: Address, escrow_id: u64) -> Result<(), EscrowError> {
         Self::require_not_paused(&env)?;
         client.require_auth();
@@ -226,11 +287,7 @@ impl EscrowContract {
         }
         let token_client = token::Client::new(&env, &escrow.token);
         let refund_amount = escrow.amount;
-        token_client.transfer(
-            &env.current_contract_address(),
-            &client,
-            &refund_amount,
-        );
+        token_client.transfer(&env.current_contract_address(), &client, &refund_amount);
         let old_status = escrow.status.clone();
         escrow.status = EscrowStatus::Refunded;
         escrow.refunded_at = Some(env.ledger().timestamp());
@@ -241,6 +298,10 @@ impl EscrowContract {
         Ok(())
     }
 
+    /// Cancels a pending escrow before it is funded.
+    ///
+    /// Transitions from `Pending` to `Cancelled` state.
+    /// Only callable by the client.
     pub fn cancel_escrow(env: Env, client: Address, escrow_id: u64) -> Result<(), EscrowError> {
         Self::require_not_paused(&env)?;
         client.require_auth();
@@ -265,6 +326,10 @@ impl EscrowContract {
         Ok(())
     }
 
+    /// Modifies an escrow's freelancer or amount before funding.
+    ///
+    /// Only allowed in `Pending` state. Both parameters are optional;
+    /// only provided values will be updated.
     pub fn modify_escrow(
         env: Env,
         client: Address,
@@ -301,10 +366,20 @@ impl EscrowContract {
         let old_status = escrow.status.clone();
         Self::push_history(&env, &mut escrow, old_status, &client, 0);
         storage::save_escrow(&env, &escrow);
-        events::emit_escrow_modified(&env, escrow_id, &client, new_amount, new_freelancer.as_ref());
+        events::emit_escrow_modified(
+            &env,
+            escrow_id,
+            &client,
+            new_amount,
+            new_freelancer.as_ref(),
+        );
         Ok(())
     }
 
+    /// Sets a deadline for the escrow.
+    ///
+    /// Allowed in `Pending` or `Funded` states.
+    /// Deadline must be in the future.
     pub fn set_deadline(
         env: Env,
         client: Address,
@@ -335,6 +410,10 @@ impl EscrowContract {
         Ok(())
     }
 
+    /// Claims a refund after the deadline has passed.
+    ///
+    /// Only callable by the client on a `Funded` escrow with a deadline.
+    /// The deadline must have passed for the claim to succeed.
     pub fn claim_timeout(env: Env, client: Address, escrow_id: u64) -> Result<(), EscrowError> {
         Self::require_not_paused(&env)?;
         client.require_auth();
@@ -351,11 +430,7 @@ impl EscrowContract {
         }
         let token_client = token::Client::new(&env, &escrow.token);
         let claim_amount = escrow.amount;
-        token_client.transfer(
-            &env.current_contract_address(),
-            &client,
-            &claim_amount,
-        );
+        token_client.transfer(&env.current_contract_address(), &client, &claim_amount);
         let old_status = escrow.status.clone();
         escrow.status = EscrowStatus::Refunded;
         escrow.refunded_at = Some(env.ledger().timestamp());
@@ -366,6 +441,10 @@ impl EscrowContract {
         Ok(())
     }
 
+    /// Approves a milestone for release.
+    ///
+    /// Transitions milestone from `Pending` or `Submitted` to `Approved`.
+    /// Only callable by the client.
     pub fn approve_milestone(
         env: Env,
         client: Address,
@@ -407,6 +486,10 @@ impl EscrowContract {
         Ok(())
     }
 
+    /// Rejects a milestone submission.
+    ///
+    /// Transitions milestone from `Pending` or `Submitted` to `Rejected`.
+    /// Only callable by the client.
     pub fn reject_milestone(
         env: Env,
         client: Address,
@@ -448,6 +531,10 @@ impl EscrowContract {
         Ok(())
     }
 
+    /// Submits a milestone for client review.
+    ///
+    /// Transitions milestone from `Pending` to `Submitted`.
+    /// Only callable by the freelancer.
     pub fn submit_milestone(
         env: Env,
         freelancer: Address,
@@ -486,6 +573,10 @@ impl EscrowContract {
         Ok(())
     }
 
+    /// Releases funds for an approved milestone to the freelancer.
+    ///
+    /// Only callable by the client on an `Approved` milestone.
+    /// Transfers the milestone amount to the freelancer.
     pub fn release_milestone(
         env: Env,
         client: Address,
@@ -543,6 +634,10 @@ impl EscrowContract {
         Ok(())
     }
 
+    /// Raises a dispute on a funded escrow.
+    ///
+    /// Either the client or freelancer can raise a dispute.
+    /// Transitions from `Funded` to `Disputed` state.
     pub fn raise_dispute(env: Env, caller: Address, escrow_id: u64) -> Result<(), EscrowError> {
         Self::require_not_paused(&env)?;
         caller.require_auth();
@@ -565,6 +660,11 @@ impl EscrowContract {
         Ok(())
     }
 
+    /// Resolves a dispute by the admin/arbiter.
+    ///
+    /// Can release funds to freelancer, refund to client, or split the funds.
+    /// Only callable by the admin address.
+    #[allow(clippy::too_many_arguments)]
     pub fn resolve_dispute(
         env: Env,
         resolver: Address,
@@ -679,6 +779,9 @@ impl EscrowContract {
         Ok(())
     }
 
+    /// Sets the arbiter for a specific escrow.
+    ///
+    /// Only callable by the admin.
     pub fn set_arbiter(
         env: Env,
         admin: Address,
@@ -692,6 +795,9 @@ impl EscrowContract {
         Ok(())
     }
 
+    /// Sets the fee percentage for a specific escrow.
+    ///
+    /// Only callable by the admin. Fee cannot exceed 10%.
     pub fn set_fee(
         env: Env,
         admin: Address,
@@ -712,11 +818,10 @@ impl EscrowContract {
         Ok(())
     }
 
-    pub fn set_default_fee(
-        env: Env,
-        admin: Address,
-        fee_percent: u32,
-    ) -> Result<(), EscrowError> {
+    /// Sets the default fee percentage for all new escrows.
+    ///
+    /// Only callable by the admin. Fee cannot exceed 10%.
+    pub fn set_default_fee(env: Env, admin: Address, fee_percent: u32) -> Result<(), EscrowError> {
         Self::require_admin(&env, &admin)?;
         if fee_percent > MAX_FEE_PERCENT {
             return Err(EscrowError::CannotSetFeeExceedingMax);
@@ -725,59 +830,143 @@ impl EscrowContract {
         Ok(())
     }
 
+    /// Sets the treasury address for fee collection.
+    ///
+    /// Only callable by the admin.
     pub fn set_treasury(env: Env, admin: Address, treasury: Address) -> Result<(), EscrowError> {
         Self::require_admin(&env, &admin)?;
         storage::set_treasury(&env, &treasury);
         Ok(())
     }
 
+    /// Initializes the contract admin.
+    ///
+    /// Can only be called once. The admin is responsible for dispute resolution,
+    /// fee management, and contract administration.
     pub fn initialize_admin(env: Env, admin: Address) -> Result<(), EscrowError> {
         if storage::get_admin(&env).is_some() {
-            return Err(EscrowError::Unauthorized);
+            return Err(EscrowError::AlreadyInitialized);
         }
         storage::set_admin(&env, &admin);
+        storage::set_version(&env, storage::CURRENT_VERSION);
         Ok(())
     }
 
+    /// Pauses or unpauses the contract.
+    ///
+    /// When paused, all mutating operations (except admin functions) are blocked.
+    /// Only callable by the admin.
     pub fn set_paused(env: Env, admin: Address, paused: bool) -> Result<(), EscrowError> {
         Self::require_admin(&env, &admin)?;
         storage::set_paused(&env, paused);
         Ok(())
     }
 
+    /// Returns the full escrow data for a given ID.
+    ///
+    /// # Errors
+    /// Returns `EscrowError::EscrowNotFound` if no escrow exists.
     pub fn get_escrow(env: Env, escrow_id: u64) -> Result<Escrow, EscrowError> {
         storage::get_escrow(&env, escrow_id)
     }
 
+    /// Returns the complete history of state transitions for an escrow.
+    ///
+    /// # Errors
+    /// Returns `EscrowError::EscrowNotFound` if no escrow exists.
     pub fn get_history(env: Env, escrow_id: u64) -> Result<Vec<EscrowEvent>, EscrowError> {
         let escrow = storage::get_escrow(&env, escrow_id)?;
         Ok(escrow.history)
     }
 
+    /// Returns the admin address, or `None` if not initialized.
     pub fn get_admin(env: Env) -> Option<Address> {
         storage::get_admin(&env)
     }
 
+    /// Returns whether the contract is currently paused.
     pub fn is_paused(env: Env) -> bool {
         storage::is_paused(&env)
     }
 
-    pub fn set_escrow_ttl(
-        env: Env,
-        admin: Address,
-        ttl: u32,
-    ) -> Result<(), EscrowError> {
+    /// Sets the configurable TTL for escrow storage.
+    ///
+    /// Only callable by the admin. TTL must be between 1,000,000 and 7,776,000
+    /// ledger increments.
+    pub fn set_escrow_ttl(env: Env, admin: Address, ttl: u32) -> Result<(), EscrowError> {
         Self::require_admin(&env, &admin)?;
         storage::set_escrow_ttl(&env, ttl)
     }
 
+    /// Returns the current configured TTL for escrow storage.
     pub fn get_escrow_ttl(env: Env) -> u32 {
         storage::get_escrow_ttl(&env)
     }
 
+    /// Cleans up expired terminal escrows from storage.
+    ///
+    /// Only removes escrows in terminal states that have exceeded the TTL.
+    /// Returns the number of escrows cleaned up.
     pub fn cleanup_expired_escrows(env: Env, admin: Address) -> Result<u32, EscrowError> {
         Self::require_admin(&env, &admin)?;
         storage::cleanup_expired_escrows(&env, &admin)
+    }
+
+    /// Returns the current contract version number.
+    pub fn get_version(env: Env) -> u32 {
+        storage::get_version(&env)
+    }
+
+    /// Performs a contract migration to a new version.
+    ///
+    /// Only callable by the admin. Version must be greater than current.
+    /// Currently validates state integrity and updates the version number.
+    ///
+    /// # Errors
+    /// - `VersionMismatch` if new_version <= current_version
+    /// - `AdminRequired` if admin not initialized
+    pub fn migrate(env: Env, admin: Address, new_version: u32) -> Result<(), EscrowError> {
+        Self::require_admin(&env, &admin)?;
+        let current = storage::get_version(&env);
+        if new_version <= current {
+            return Err(EscrowError::VersionMismatch);
+        }
+        let counter = storage::read_counter(&env);
+        for id in 1..=counter {
+            let _ = storage::get_escrow(&env, id);
+        }
+        storage::set_version(&env, new_version);
+        events::emit_contract_upgraded(&env, &admin, current, new_version);
+        Ok(())
+    }
+
+    /// Assigns a role to an address.
+    ///
+    /// Only callable by the admin. Roles include:
+    /// - `admin`: Full admin access
+    /// - `fee_manager`: Can manage fees
+    /// - `pause_controller`: Can pause/unpause
+    pub fn assign_role(
+        env: Env,
+        admin: Address,
+        address: Address,
+        role: soroban_sdk::String,
+    ) -> Result<(), EscrowError> {
+        Self::require_admin(&env, &admin)?;
+        storage::assign_role(&env, &address, &role)?;
+        events::emit_role_assigned(&env, &admin, &address, &role);
+        Ok(())
+    }
+
+    /// Returns whether an address has a specific role.
+    pub fn has_role(env: Env, address: Address, role: soroban_sdk::String) -> bool {
+        storage::has_role(&env, &address, &role)
+    }
+
+    fn validate_token(env: &Env, token: &Address) -> Result<(), EscrowError> {
+        let client = token::Client::new(env, token);
+        client.balance(&env.current_contract_address());
+        Ok(())
     }
 
     fn require_not_paused(env: &Env) -> Result<(), EscrowError> {

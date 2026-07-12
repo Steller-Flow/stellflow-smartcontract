@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 #![cfg(test)]
 
 use soroban_sdk::{testutils::Address as _, Address, Env};
@@ -108,7 +109,7 @@ fn test_cancel_escrow_tracks_history() {
     let escrow_id = c.create_escrow(&client, &freelancer, &token, &10000, &None);
     c.cancel_escrow(&client, &escrow_id);
     let history = c.get_history(&escrow_id);
-    assert!(history.len() >= 1);
+    assert!(!history.is_empty());
 }
 
 #[test]

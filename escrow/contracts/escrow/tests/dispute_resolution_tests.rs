@@ -1,7 +1,8 @@
+#![allow(deprecated)]
 #![cfg(test)]
 
 use soroban_sdk::{testutils::Address as _, Address, Env};
-use stellflow_escrow::{EscrowContract, EscrowError, EscrowStatus};
+use stellflow_escrow::{EscrowContract, EscrowStatus};
 
 fn setup() -> (Env, Address, Address, Address, Address) {
     let env = Env::default();

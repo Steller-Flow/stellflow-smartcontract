@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 #![cfg(test)]
 
 use soroban_sdk::{testutils::Address as _, testutils::Ledger, Address, Env, String, Vec};
@@ -46,7 +47,10 @@ fn test_full_lifecycle_with_balance_verification() {
     c.release(&client, &escrow_id);
     let client_balance_after_release = token_balance(&env, &token, &client);
     let freelancer_balance_after_release = token_balance(&env, &token, &freelancer);
-    assert_eq!(freelancer_balance_after_release - freelancer_balance_before, 10000);
+    assert_eq!(
+        freelancer_balance_after_release - freelancer_balance_before,
+        10000
+    );
     assert_eq!(client_balance_after_release, client_balance_after_fund);
 
     let escrow = c.get_escrow(&escrow_id);
@@ -96,8 +100,14 @@ fn test_fee_mechanism_on_release() {
     let expected_fee = 10000 * 2 / 100;
     let expected_release = 10000 - expected_fee;
 
-    assert_eq!(freelancer_balance_after - freelancer_balance_before, expected_release);
-    assert_eq!(treasury_balance_after - treasury_balance_before, expected_fee);
+    assert_eq!(
+        freelancer_balance_after - freelancer_balance_before,
+        expected_release
+    );
+    assert_eq!(
+        treasury_balance_after - treasury_balance_before,
+        expected_fee
+    );
 
     let escrow = c.get_escrow(&escrow_id);
     assert_eq!(escrow.total_released, expected_release);
@@ -127,8 +137,14 @@ fn test_fee_mechanism_on_dispute_resolution() {
     let expected_fee = 20000 * 5 / 100;
     let expected_release = 20000 - expected_fee;
 
-    assert_eq!(freelancer_balance_after - freelancer_balance_before, expected_release);
-    assert_eq!(treasury_balance_after - treasury_balance_before, expected_fee);
+    assert_eq!(
+        freelancer_balance_after - freelancer_balance_before,
+        expected_release
+    );
+    assert_eq!(
+        treasury_balance_after - treasury_balance_before,
+        expected_fee
+    );
 
     let escrow = c.get_escrow(&escrow_id);
     assert_eq!(escrow.total_released, expected_release);
@@ -237,7 +253,13 @@ fn test_milestone_full_lifecycle_with_balances() {
     amounts.push_back(6000);
 
     let escrow_id = c.create_escrow_with_milestones(
-        &client, &freelancer, &token, &10000, &descs, &amounts, &None,
+        &client,
+        &freelancer,
+        &token,
+        &10000,
+        &descs,
+        &amounts,
+        &None,
     );
 
     c.fund_escrow(&client, &escrow_id);
@@ -248,18 +270,24 @@ fn test_milestone_full_lifecycle_with_balances() {
     c.release_milestone(&client, &escrow_id, &0);
 
     let freelancer_balance_after_milestone1 = token_balance(&env, &token, &freelancer);
-    assert_eq!(freelancer_balance_after_milestone1 - freelancer_balance_before, 4000);
+    assert_eq!(
+        freelancer_balance_after_milestone1 - freelancer_balance_before,
+        4000
+    );
 
     c.approve_milestone(&client, &escrow_id, &1);
     c.release_milestone(&client, &escrow_id, &1);
 
     let freelancer_balance_after_milestone2 = token_balance(&env, &token, &freelancer);
-    assert_eq!(freelancer_balance_after_milestone2 - freelancer_balance_before, 10000);
+    assert_eq!(
+        freelancer_balance_after_milestone2 - freelancer_balance_before,
+        10000
+    );
 
     let escrow = c.get_escrow(&escrow_id);
     assert_eq!(escrow.total_released, 10000);
-    assert_eq!(escrow.milestones.get(0).unwrap().released, true);
-    assert_eq!(escrow.milestones.get(1).unwrap().released, true);
+    assert!(escrow.milestones.get(0).unwrap().released);
+    assert!(escrow.milestones.get(1).unwrap().released);
 }
 
 #[test]
@@ -339,5 +367,8 @@ fn test_set_fee_and_release_with_new_fee() {
     let freelancer_balance_after = token_balance(&env, &token, &freelancer);
 
     let expected_fee = 10000 * 3 / 100;
-    assert_eq!(freelancer_balance_after - freelancer_balance_before, 10000 - expected_fee);
+    assert_eq!(
+        freelancer_balance_after - freelancer_balance_before,
+        10000 - expected_fee
+    );
 }
