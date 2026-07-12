@@ -73,12 +73,6 @@ jobs:
           key: ${{ runner.os }}-cargo-build-${{ hashFiles('escrow/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-build-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libdbus-1-dev pkg-config libudev-dev libusb-1.0-0-dev
-      - name: Install soroban-cli
-        run: cargo install --locked soroban-cli
       - name: Build contract
         run: cargo build --release
         working-directory: escrow
@@ -91,20 +85,11 @@ jobs:
             echo "ERROR: Contract exceeds maximum size of $MAX_SIZE bytes"
             exit 1
           fi
-      - name: Optimize contract
-        run: |
-          soroban contract optimize \
-            --wasm escrow/target/release/libstellflow_escrow.so \
-            > escrow/target/release/stellflow_escrow_optimized.wasm
-          OPT_SIZE=$(stat -f%z escrow/target/release/stellflow_escrow_optimized.wasm 2>/dev/null || stat -c%s escrow/target/release/stellflow_escrow_optimized.wasm 2>/dev/null)
-          echo "Optimized contract size: $OPT_SIZE bytes"
       - name: Upload contract artifact
         uses: actions/upload-artifact@v4
         with:
           name: escrow-contract
-          path: |
-            escrow/target/release/libstellflow_escrow.so
-            escrow/target/release/stellflow_escrow_optimized.wasm
+          path: escrow/target/release/libstellflow_escrow.so
 
   security:
     name: Security Audit
