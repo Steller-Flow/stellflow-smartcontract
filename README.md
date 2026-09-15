@@ -17,17 +17,38 @@ deadline.
 
 | | |
 |---|---|
-| Contract ID | `CCXOOFWSH3REC6763NQLNGCGPJZE7JSVLLLCZWNLEDUPOP3LCOIWFPUI` |
-| Explorer | [stellar.expert](https://stellar.expert/explorer/testnet/contract/CCXOOFWSH3REC6763NQLNGCGPJZE7JSVLLLCZWNLEDUPOP3LCOIWFPUI) · [lab.stellar.org](https://lab.stellar.org/r/testnet/contract/CCXOOFWSH3REC6763NQLNGCGPJZE7JSVLLLCZWNLEDUPOP3LCOIWFPUI) |
-| WASM hash | `9c55e438dc8c46bd4232ee837a5660e8ef6bd03d222b72e4e95a4dc69574cc54` |
+| Contract ID | `CA77HTQMZAFBU5GVVFOEHT6AGCOVZJ2MXSEZ33DJJSZWY6NFFPPI67RS` |
+| Explorer | [stellar.expert](https://stellar.expert/explorer/testnet/contract/CA77HTQMZAFBU5GVVFOEHT6AGCOVZJ2MXSEZ33DJJSZWY6NFFPPI67RS) · [lab.stellar.org](https://lab.stellar.org/r/testnet/contract/CA77HTQMZAFBU5GVVFOEHT6AGCOVZJ2MXSEZ33DJJSZWY6NFFPPI67RS) |
+| WASM hash | `47b29590a5495223a218cea2cb1d9ef0a3f6520c89a2e2a7be607a11b9028192` |
+| Build | **SEP-0055 verified.** Built by GitHub Actions from tag [`v1.0.0`](https://github.com/Steller-Flow/stellflow-smartcontract/tree/v1.0.0) (commit `17d980a`) via [`release.yml`](.github/workflows/release.yml); artifact in release [`v1.0.0_escrow_stellflow-escrow_pkg0.1.0_cli27.0.0`](https://github.com/Steller-Flow/stellflow-smartcontract/releases/tag/v1.0.0_escrow_stellflow-escrow_pkg0.1.0_cli27.0.0); provenance in the repo's [attestations](https://github.com/Steller-Flow/stellflow-smartcontract/attestations) |
 | Admin | `GA4V7OOAN2EIPSBDTKMKSD3BQ36FTZQ3XH6GSLIIAMX6TRM3NEDM5MIU` |
-| Deploy tx | [`f30e883c…`](https://stellar.expert/explorer/testnet/tx/f30e883caff8d173f8ffb8db7827409520993d09e6df9c468bd16314bcf8d7dc) |
-| Init tx | [`abfe2d59…`](https://stellar.expert/explorer/testnet/tx/abfe2d59648638f6a5ecc56da8fd9eb3c1e4ab2aa519684426d3a8feb654f07e) |
+| Deploy tx | [`66709475…`](https://stellar.expert/explorer/testnet/tx/66709475d7d8fc11575eccd881338dc584d52e86a7136d0f69760932ea2b1fe8) |
+| Init tx | [`49d25837…`](https://stellar.expert/explorer/testnet/tx/49d25837251b776c1e7fe3a3a80f3635a2046ead42d49a2c55673f244fad47c6) |
+
+The deployed WASM embeds `source_repo=github:Steller-Flow/stellflow-smartcontract`
+([SEP-0055](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0055.md)),
+and the release artifact carries a SLSA build-provenance attestation signed by
+GitHub. Check both against the live contract:
+
+```bash
+# resolves the on-chain WASM to the GitHub Actions run that built it
+stellar contract info build --id CA77HTQMZAFBU5GVVFOEHT6AGCOVZJ2MXSEZ33DJJSZWY6NFFPPI67RS --network testnet
+
+# verifies the release artifact's provenance (signer is the reusable build workflow)
+gh release download v1.0.0_escrow_stellflow-escrow_pkg0.1.0_cli27.0.0 --dir /tmp/stellflow
+gh attestation verify /tmp/stellflow/stellflow-escrow_v0.1.0.wasm \
+  --repo Steller-Flow/stellflow-smartcontract \
+  --signer-workflow stellar-expert/soroban-build-workflow/.github/workflows/release.yml
+```
+
+This supersedes the earlier laptop-built, unverified deployment
+`CCXOOFWSH3REC6763NQLNGCGPJZE7JSVLLLCZWNLEDUPOP3LCOIWFPUI` (same source, no
+provenance). It is left on testnet but should not be used.
 
 Read it yourself:
 
 ```bash
-stellar contract invoke --id CCXOOFWSH3REC6763NQLNGCGPJZE7JSVLLLCZWNLEDUPOP3LCOIWFPUI \
+stellar contract invoke --id CA77HTQMZAFBU5GVVFOEHT6AGCOVZJ2MXSEZ33DJJSZWY6NFFPPI67RS \
   --network testnet --source <any-funded-testnet-key> -- get_admin
 # "GA4V7OOAN2EIPSBDTKMKSD3BQ36FTZQ3XH6GSLIIAMX6TRM3NEDM5MIU"
 ```
