@@ -75,8 +75,21 @@ jobs:
           key: ${{ runner.os }}-cargo-wasm-${{ hashFiles('escrow/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-wasm-
-      - name: Install stellar-cli
-        run: cargo install --locked stellar-cli
+      - name: Install stellar-cli (prebuilt v28.0.0)
+        run: |
+          set -euo pipefail
+          URL="https://github.com/stellar/stellar-cli/releases/download/v28.0.0/stellar-cli-28.0.0-x86_64-unknown-linux-gnu.tar.gz"
+          TMP=$(mktemp -d)
+          curl -fsSL --retry 3 -o "$TMP/stellar-cli.tar.gz" "$URL"
+          tar -xzf "$TMP/stellar-cli.tar.gz" -C "$TMP"
+          BIN=$(find "$TMP" -type f -name stellar | head -n1)
+          if [ -z "$BIN" ]; then
+            echo "ERROR: no 'stellar' binary found in $URL"
+            tar -tzf "$TMP/stellar-cli.tar.gz"
+            exit 1
+          fi
+          sudo install -m 0755 "$BIN" /usr/local/bin/stellar
+          stellar --version
       - name: Build contract to WASM
         run: stellar contract build
         working-directory: escrow
