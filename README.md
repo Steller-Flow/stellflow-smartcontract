@@ -17,17 +17,17 @@ deadline.
 
 | | |
 |---|---|
-| Contract ID | `CCSFK5YLL5B5OAIIAXU2GVHTK52RZ3VGA2LWBSYHG6VZQMCSYBNPOIUD` |
-| Explorer | [stellar.expert](https://stellar.expert/explorer/testnet/contract/CCSFK5YLL5B5OAIIAXU2GVHTK52RZ3VGA2LWBSYHG6VZQMCSYBNPOIUD) · [lab.stellar.org](https://lab.stellar.org/r/testnet/contract/CCSFK5YLL5B5OAIIAXU2GVHTK52RZ3VGA2LWBSYHG6VZQMCSYBNPOIUD) |
-| WASM hash | `fc74a14e27e3ba2de8c511588d81c390708bd7ffe0cf02bd44117ef80f67b94e` |
+| Contract ID | `CCXOOFWSH3REC6763NQLNGCGPJZE7JSVLLLCZWNLEDUPOP3LCOIWFPUI` |
+| Explorer | [stellar.expert](https://stellar.expert/explorer/testnet/contract/CCXOOFWSH3REC6763NQLNGCGPJZE7JSVLLLCZWNLEDUPOP3LCOIWFPUI) · [lab.stellar.org](https://lab.stellar.org/r/testnet/contract/CCXOOFWSH3REC6763NQLNGCGPJZE7JSVLLLCZWNLEDUPOP3LCOIWFPUI) |
+| WASM hash | `9c55e438dc8c46bd4232ee837a5660e8ef6bd03d222b72e4e95a4dc69574cc54` |
 | Admin | `GA4V7OOAN2EIPSBDTKMKSD3BQ36FTZQ3XH6GSLIIAMX6TRM3NEDM5MIU` |
-| Deploy tx | [`9dc6b67c…`](https://stellar.expert/explorer/testnet/tx/9dc6b67c5ad11ddf10f046081631e8a47df7b95b8b6895fb9f1b2a4f56cb160b) |
-| Init tx | [`8e127b8f…`](https://stellar.expert/explorer/testnet/tx/8e127b8f6c50930e8adf2f7ac9bd3cc03e030868cffeafd47e0277e34e111ef5) |
+| Deploy tx | [`f30e883c…`](https://stellar.expert/explorer/testnet/tx/f30e883caff8d173f8ffb8db7827409520993d09e6df9c468bd16314bcf8d7dc) |
+| Init tx | [`abfe2d59…`](https://stellar.expert/explorer/testnet/tx/abfe2d59648638f6a5ecc56da8fd9eb3c1e4ab2aa519684426d3a8feb654f07e) |
 
 Read it yourself:
 
 ```bash
-stellar contract invoke --id CCSFK5YLL5B5OAIIAXU2GVHTK52RZ3VGA2LWBSYHG6VZQMCSYBNPOIUD \
+stellar contract invoke --id CCXOOFWSH3REC6763NQLNGCGPJZE7JSVLLLCZWNLEDUPOP3LCOIWFPUI \
   --network testnet --source <any-funded-testnet-key> -- get_admin
 # "GA4V7OOAN2EIPSBDTKMKSD3BQ36FTZQ3XH6GSLIIAMX6TRM3NEDM5MIU"
 ```
@@ -132,7 +132,9 @@ moves the escrow to `Funded`. Records `funded_at` and a history entry.
 
 #### `release(client: Address, escrow_id: u64) -> Result<(), EscrowError>`
 
-Pays the freelancer `amount - fee` and moves a `Funded` escrow to `Released`.
+Pays the freelancer `remaining - fee` — where `remaining` is `amount` minus
+any milestone releases already paid out — and moves a `Funded` escrow to
+`Released`.
 If a fee applies and a treasury is configured, the fee is sent to the
 treasury. **If a deadline is set, `release` is only allowed once the deadline
 has passed.**
@@ -145,8 +147,9 @@ has passed.**
 
 #### `refund(client: Address, escrow_id: u64) -> Result<(), EscrowError>`
 
-Returns the full `amount` to the client and moves a `Funded` escrow to
-`Refunded`. No fee is taken.
+Returns the remaining balance (`amount` minus milestone releases already
+paid out) to the client and moves a `Funded` escrow to `Refunded`. No fee is
+taken.
 
 - **Authorized:** the escrow's `client`
 - **Errors:** as `release`, without `DeadlineNotPassed`
@@ -212,7 +215,8 @@ Marks a `Pending` or `Submitted` milestone `Rejected`.
 
 Transfers an `Approved` milestone's amount to the freelancer, marks it
 `released`, and adds it to `total_released`. No fee is taken on milestone
-releases. The escrow stays `Funded`.
+releases. The escrow stays `Funded`; a later `release`, `refund`,
+`claim_timeout`, or `resolve_dispute` operates on what remains.
 
 - **Authorized:** the escrow's `client`
 - **Errors:** `UnauthorizedAction` (25); `InvalidStateTransition` (11) if the
@@ -231,23 +235,28 @@ Moves a `Funded` escrow to `Disputed` and records `disputed_at`.
 
 #### `resolve_dispute(resolver: Address, escrow_id: u64, release_to_freelancer: bool, split_to_freelancer: Option<i128>) -> Result<(), EscrowError>`
 
-Settles a `Disputed` escrow. Decision order:
+Settles a `Disputed` escrow.
 
-1. If `split_to_freelancer` is `Some(f)`: the freelancer receives `f`, the
-   client receives `amount - f`, and the escrow becomes `Released`.
-   `release_to_freelancer` is ignored. If a fee applies, `f - fee > 0`, and a
-   treasury is set, the fee is additionally transferred to the treasury (see
-   [Known limitations](#known-limitations)).
+All three outcomes pay out exactly the remaining balance (`amount` minus
+milestone releases already paid out). Decision order:
+
+1. If `split_to_freelancer` is `Some(f)`: the fee is charged on the
+   freelancer's share only — the freelancer receives `f - fee(f)`, the
+   treasury receives `fee(f)`, the client receives `remaining - f`, and the
+   escrow becomes `Released`. `release_to_freelancer` is ignored.
+   `Some(remaining)` pays the same as outcome 2 and `Some(0)` the same as
+   outcome 3.
 2. Else if `release_to_freelancer` is `true`: as `release` — freelancer
-   receives `amount - fee`, treasury receives the fee, escrow becomes
+   receives `remaining - fee`, treasury receives the fee, escrow becomes
    `Released`.
-3. Else: the client receives the full `amount`, escrow becomes `Refunded`.
+3. Else: the client receives the full remaining balance, escrow becomes
+   `Refunded`.
 
 - **Authorized:** the contract admin (the per-escrow arbiter is not consulted)
 - **Errors:** `Unauthorized` (2) if no admin is initialized;
   `UnauthorizedAction` (25) if `resolver` is not the admin;
   `NoActiveDispute` (18) if not `Disputed`; `InvalidAmount` (1) if the split is
-  negative or greater than `amount`
+  negative or greater than the remaining balance
 
 #### `set_arbiter(admin: Address, escrow_id: u64, arbiter: Address) -> Result<(), EscrowError>`
 
@@ -272,8 +281,9 @@ escrow. Once set, the client cannot `release` before it and can
 
 #### `claim_timeout(client: Address, escrow_id: u64) -> Result<(), EscrowError>`
 
-After the deadline has passed, returns the full `amount` to the client and
-moves a `Funded` escrow to `Refunded`.
+After the deadline has passed, returns the remaining balance (`amount` minus
+milestone releases already paid out) to the client and moves a `Funded`
+escrow to `Refunded`.
 
 - **Authorized:** the escrow's `client`
 - **Errors:** `UnauthorizedAction` (25); `InvalidStateTransition` (11) if not
@@ -282,7 +292,8 @@ moves a `Funded` escrow to `Refunded`.
 
 ### Fees and treasury
 
-The fee on an escrow is `amount * fee_percent / 100` (integer division),
+The fee is `fee_percent` of the amount being paid to the freelancer
+(`paid * fee_percent / 100`, integer division),
 `fee_percent` ∈ 0–10. New escrows copy the default fee at creation; the
 default is 0. Fees are only ever moved to the treasury when one is
 configured. Admin functions in this group are not blocked by the pause flag.
@@ -404,24 +415,15 @@ discover them. None are fixed yet.
   roles, but every admin-gated function checks only the single admin address.
 - **The per-escrow arbiter is not used.** `resolve_dispute` accepts only the
   admin regardless of `set_arbiter`.
-- **Fee on a split resolution is paid on top of the split.** In the
-  `split_to_freelancer` path the freelancer receives `f` and the client
-  `amount - f` (the full escrow), and then a further `fee` is sent to the
-  treasury, so the contract pays out `amount + fee` for that escrow. The
-  `release` and non-split resolution paths deduct the fee from the payout
-  correctly. No test covers fee + split together.
 - **Fees are retained if no treasury is set.** `release` still deducts the
   fee from the freelancer's payout, but with no treasury the fee stays in the
   contract with no function to withdraw it.
-- **Milestone releases do not reduce `amount`.** After partial milestone
-  releases, `release`, `refund`, and `claim_timeout` still attempt to transfer
-  the original full `amount`.
 - **`ContractPaused` does not apply to admin functions**, by design, so the
   admin can still change fees, roles, and the pause flag while paused.
 
 ## Tests
 
-108 tests across 9 integration suites in
+114 tests across 9 integration suites in
 [`escrow/contracts/escrow/tests/`](escrow/contracts/escrow/tests/), run
 against the Soroban test environment with a registered Stellar Asset Contract
 as the token.
@@ -430,14 +432,14 @@ as the token.
 |---|---|---|
 | `dispute_resolution_tests` | 16 | raise / resolve, split bounds, authorization |
 | `release_refund_tests` | 14 | release, refund, wrong-client and terminal-state guards, timestamps, totals |
-| `fee_and_history_tests` | 13 | fee on release and on dispute resolution, zero fee, treasury balances, history log, milestone balances |
+| `fee_and_history_tests` | 19 | fee on release, on dispute resolution and on splits, zero fee, treasury balances, history log, milestone balances, settlement after partial milestone release |
 | `modify_escrow_tests` | 13 | modify before funding, validation |
 | `timeout_tests` | 13 | deadline validation, `set_deadline`, `claim_timeout` success and guards |
 | `create_escrow_tests` | 12 | creation, amount/deadline validation, sequential IDs, initial defaults |
 | `cancel_escrow_tests` | 11 | cancel from each state |
 | `integration_tests` | 10 | end-to-end lifecycles, milestone lifecycle and validation, pause blocks operations |
 | `fund_escrow_tests` | 6 | funding, wrong-client and state guards |
-| **Total** | **108** | |
+| **Total** | **114** | |
 
 ```bash
 cd escrow
@@ -495,7 +497,7 @@ stellar contract invoke --id my-escrow --source deployer --network testnet \
         │   ├── types.rs          # Escrow, Milestone, EscrowEvent, enums
         │   ├── errors.rs         # EscrowError (41 variants)
         │   └── testutils.rs      # cfg(test) helpers
-        └── tests/                # 9 suites, 108 tests
+        └── tests/                # 9 suites, 114 tests
 ```
 
 ## Contributing and security
