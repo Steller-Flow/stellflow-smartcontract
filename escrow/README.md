@@ -1,22 +1,55 @@
-# Soroban Project
+# `escrow/` — Cargo workspace
 
-## Project Structure
+This directory is the Cargo workspace for the StellFlow escrow contract. The
+only member is `contracts/escrow/` (crate `stellflow-escrow`); the shared
+`soroban-sdk` version and the size-optimised `release` profile live in the
+workspace `Cargo.toml` here.
 
-This repository uses the recommended structure for a Soroban project:
+For what the contract does, its API, and the security model, see the
+[root README](../README.md).
+
+## Layout
 
 ```text
-.
-├── contracts
-│   └── hello_world
-│       ├── src
-│       │   ├── lib.rs
-│       │   └── test.rs
-│       └── Cargo.toml
-├── Cargo.toml
-└── README.md
+escrow/
+├── Cargo.toml              # workspace: members, soroban-sdk version, release profile
+└── contracts/escrow/
+    ├── Cargo.toml          # crate: cdylib + rlib, `testutils` feature
+    ├── src/
+    │   ├── lib.rs          # #![no_std] crate root, module wiring, re-exports
+    │   ├── contract.rs     # EscrowContract: the 32 exported contract functions
+    │   ├── storage.rs      # persistent/instance storage accessors, TTL, roles
+    │   ├── events.rs       # event symbols and emit_* helpers
+    │   ├── types.rs        # Escrow, Milestone, EscrowEvent, status enums, DataKey
+    │   ├── errors.rs       # EscrowError (contracterror) variants
+    │   └── testutils.rs    # cfg(test) helpers (test env, funded escrow)
+    └── tests/              # 9 integration suites, 108 tests
 ```
 
-- New Soroban contracts can be put in `contracts`, each in their own directory. There is already a `hello_world` contract in there to get you started.
-- If you initialized this project with any other example contracts via `--with-example`, those contracts will be in the `contracts` directory as well.
-- Contracts should have their own `Cargo.toml` files that rely on the top-level `Cargo.toml` workspace for their dependencies.
-- Frontend libraries can be added to the top-level directory as well. If you initialized this project with a frontend template via `--frontend-template` you will have those files already included.
+## Build
+
+Soroban contracts must be built with `stellar contract build`, not
+`cargo build` (see the [soroban-sdk docs](https://docs.rs/soroban-sdk)).
+It targets `wasm32v1-none` and post-processes the binary.
+
+```bash
+# one-time setup
+rustup target add wasm32v1-none
+cargo install --locked stellar-cli   # or: brew install stellar-cli
+
+# from this directory
+stellar contract build
+# → target/wasm32v1-none/release/stellflow_escrow.wasm
+```
+
+## Test and lint
+
+```bash
+# from this directory
+cargo test --all
+cargo test --all --features testutils
+cargo fmt --all -- --check
+cargo clippy --all-targets -- -D warnings
+```
+
+These are the same commands CI runs (`.github/workflows/ci.yml`).
