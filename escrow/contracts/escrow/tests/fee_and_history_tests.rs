@@ -372,3 +372,249 @@ fn test_set_fee_and_release_with_new_fee() {
         10000 - expected_fee
     );
 }
+
+fn contract_balance(
+    env: &Env,
+    token: &Address,
+    c: &stellflow_escrow::contract::EscrowContractClient<'_>,
+) -> i128 {
+    token_balance(env, token, &c.address)
+}
+
+fn create_two_milestone_escrow(
+    env: &Env,
+    c: &stellflow_escrow::contract::EscrowContractClient<'_>,
+    client: &Address,
+    freelancer: &Address,
+    token: &Address,
+    deadline: Option<u64>,
+) -> u64 {
+    let mut descs = Vec::new(env);
+    descs.push_back(String::from_str(env, "Design"));
+    descs.push_back(String::from_str(env, "Development"));
+    let mut amounts = Vec::new(env);
+    amounts.push_back(4000);
+    amounts.push_back(6000);
+    c.create_escrow_with_milestones(
+        client, freelancer, token, &10000, &descs, &amounts, &deadline,
+    )
+}
+
+#[test]
+fn test_dispute_split_with_fee_balances_net_to_zero() {
+    let (env, client, freelancer, admin, token) = setup();
+    let c = contract(&env);
+
+    c.initialize_admin(&admin);
+    c.set_treasury(&admin, &admin);
+    c.set_default_fee(&admin, &5);
+
+    let escrow_id = c.create_escrow(&client, &freelancer, &token, &10000, &None);
+    c.fund_escrow(&client, &escrow_id);
+    assert_eq!(contract_balance(&env, &token, &c), 10000);
+    c.raise_dispute(&freelancer, &escrow_id);
+
+    let client_balance_before = token_balance(&env, &token, &client);
+    let freelancer_balance_before = token_balance(&env, &token, &freelancer);
+    let treasury_balance_before = token_balance(&env, &token, &admin);
+
+    c.resolve_dispute(&admin, &escrow_id, &false, &Some(6000));
+
+    // Fee is charged on the freelancer's share only: 6000 * 5% = 300.
+    let expected_fee = 6000 * 5 / 100;
+    assert_eq!(
+        token_balance(&env, &token, &freelancer) - freelancer_balance_before,
+        6000 - expected_fee
+    );
+    assert_eq!(
+        token_balance(&env, &token, &client) - client_balance_before,
+        4000
+    );
+    assert_eq!(
+        token_balance(&env, &token, &admin) - treasury_balance_before,
+        expected_fee
+    );
+    assert_eq!(contract_balance(&env, &token, &c), 0);
+
+    let escrow = c.get_escrow(&escrow_id);
+    assert_eq!(escrow.status, EscrowStatus::Released);
+    assert_eq!(escrow.total_released, 6000 - expected_fee);
+    assert_eq!(escrow.total_refunded, 4000);
+}
+
+#[test]
+fn test_dispute_split_all_to_client_with_fee_takes_no_fee() {
+    let (env, client, freelancer, admin, token) = setup();
+    let c = contract(&env);
+
+    c.initialize_admin(&admin);
+    c.set_treasury(&admin, &admin);
+    c.set_default_fee(&admin, &5);
+
+    let escrow_id = c.create_escrow(&client, &freelancer, &token, &10000, &None);
+    c.fund_escrow(&client, &escrow_id);
+    c.raise_dispute(&client, &escrow_id);
+
+    let client_balance_before = token_balance(&env, &token, &client);
+    let treasury_balance_before = token_balance(&env, &token, &admin);
+
+    c.resolve_dispute(&admin, &escrow_id, &false, &Some(0));
+
+    assert_eq!(
+        token_balance(&env, &token, &client) - client_balance_before,
+        10000
+    );
+    assert_eq!(token_balance(&env, &token, &admin), treasury_balance_before);
+    assert_eq!(contract_balance(&env, &token, &c), 0);
+}
+
+#[test]
+fn test_milestone_partial_release_then_release_balances() {
+    let (env, client, freelancer, admin, token) = setup();
+    let c = contract(&env);
+
+    c.initialize_admin(&admin);
+    c.set_treasury(&admin, &admin);
+    c.set_default_fee(&admin, &5);
+
+    let escrow_id = create_two_milestone_escrow(&env, &c, &client, &freelancer, &token, None);
+    c.fund_escrow(&client, &escrow_id);
+
+    let freelancer_balance_before = token_balance(&env, &token, &freelancer);
+    let treasury_balance_before = token_balance(&env, &token, &admin);
+
+    c.approve_milestone(&client, &escrow_id, &0);
+    c.release_milestone(&client, &escrow_id, &0);
+    assert_eq!(contract_balance(&env, &token, &c), 6000);
+
+    c.release(&client, &escrow_id);
+
+    // Fee applies to the 6000 still held, not the original 10000.
+    let expected_fee = 6000 * 5 / 100;
+    assert_eq!(
+        token_balance(&env, &token, &freelancer) - freelancer_balance_before,
+        4000 + 6000 - expected_fee
+    );
+    assert_eq!(
+        token_balance(&env, &token, &admin) - treasury_balance_before,
+        expected_fee
+    );
+    assert_eq!(contract_balance(&env, &token, &c), 0);
+
+    let escrow = c.get_escrow(&escrow_id);
+    assert_eq!(escrow.status, EscrowStatus::Released);
+    assert_eq!(escrow.total_released, 4000 + 6000 - expected_fee);
+}
+
+#[test]
+fn test_milestone_partial_release_then_refund_balances() {
+    let (env, client, freelancer, _admin, token) = setup();
+    let c = contract(&env);
+
+    let client_balance_before = token_balance(&env, &token, &client);
+    let freelancer_balance_before = token_balance(&env, &token, &freelancer);
+
+    let escrow_id = create_two_milestone_escrow(&env, &c, &client, &freelancer, &token, None);
+    c.fund_escrow(&client, &escrow_id);
+
+    c.approve_milestone(&client, &escrow_id, &0);
+    c.release_milestone(&client, &escrow_id, &0);
+
+    c.refund(&client, &escrow_id);
+
+    assert_eq!(
+        client_balance_before - token_balance(&env, &token, &client),
+        4000
+    );
+    assert_eq!(
+        token_balance(&env, &token, &freelancer) - freelancer_balance_before,
+        4000
+    );
+    assert_eq!(contract_balance(&env, &token, &c), 0);
+
+    let escrow = c.get_escrow(&escrow_id);
+    assert_eq!(escrow.status, EscrowStatus::Refunded);
+    assert_eq!(escrow.total_released, 4000);
+    assert_eq!(escrow.total_refunded, 6000);
+}
+
+#[test]
+fn test_milestone_partial_release_then_claim_timeout_balances() {
+    let (env, client, freelancer, _admin, token) = setup();
+    let c = contract(&env);
+
+    let client_balance_before = token_balance(&env, &token, &client);
+    let freelancer_balance_before = token_balance(&env, &token, &freelancer);
+
+    let escrow_id = create_two_milestone_escrow(&env, &c, &client, &freelancer, &token, Some(1001));
+    c.fund_escrow(&client, &escrow_id);
+
+    c.approve_milestone(&client, &escrow_id, &0);
+    c.release_milestone(&client, &escrow_id, &0);
+
+    env.ledger().with_mut(|li| li.timestamp = 1002);
+    c.claim_timeout(&client, &escrow_id);
+
+    assert_eq!(
+        client_balance_before - token_balance(&env, &token, &client),
+        4000
+    );
+    assert_eq!(
+        token_balance(&env, &token, &freelancer) - freelancer_balance_before,
+        4000
+    );
+    assert_eq!(contract_balance(&env, &token, &c), 0);
+
+    let escrow = c.get_escrow(&escrow_id);
+    assert_eq!(escrow.status, EscrowStatus::Refunded);
+    assert_eq!(escrow.total_released, 4000);
+    assert_eq!(escrow.total_refunded, 6000);
+}
+
+#[test]
+fn test_milestone_partial_release_then_dispute_split_balances() {
+    let (env, client, freelancer, admin, token) = setup();
+    let c = contract(&env);
+
+    c.initialize_admin(&admin);
+    c.set_treasury(&admin, &admin);
+    c.set_default_fee(&admin, &10);
+
+    let client_balance_before = token_balance(&env, &token, &client);
+    let freelancer_balance_before = token_balance(&env, &token, &freelancer);
+    let treasury_balance_before = token_balance(&env, &token, &admin);
+
+    let escrow_id = create_two_milestone_escrow(&env, &c, &client, &freelancer, &token, None);
+    c.fund_escrow(&client, &escrow_id);
+
+    c.approve_milestone(&client, &escrow_id, &0);
+    c.release_milestone(&client, &escrow_id, &0);
+    c.raise_dispute(&freelancer, &escrow_id);
+
+    // Only 6000 remains; a split larger than that must be rejected.
+    assert!(c
+        .try_resolve_dispute(&admin, &escrow_id, &false, &Some(7000))
+        .is_err());
+
+    c.resolve_dispute(&admin, &escrow_id, &false, &Some(2000));
+
+    let expected_fee = 2000 * 10 / 100;
+    assert_eq!(
+        token_balance(&env, &token, &freelancer) - freelancer_balance_before,
+        4000 + 2000 - expected_fee
+    );
+    assert_eq!(
+        client_balance_before - token_balance(&env, &token, &client),
+        10000 - 4000
+    );
+    assert_eq!(
+        token_balance(&env, &token, &admin) - treasury_balance_before,
+        expected_fee
+    );
+    assert_eq!(contract_balance(&env, &token, &c), 0);
+
+    let escrow = c.get_escrow(&escrow_id);
+    assert_eq!(escrow.status, EscrowStatus::Released);
+    assert_eq!(escrow.total_released, 4000 + 2000 - expected_fee);
+    assert_eq!(escrow.total_refunded, 4000);
+}
