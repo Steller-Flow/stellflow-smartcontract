@@ -242,8 +242,9 @@ impl EscrowContract {
                 return Err(EscrowError::DeadlineNotPassed);
             }
         }
-        let fee = Self::calculate_fee(&escrow);
-        let release_amount = escrow.amount - fee;
+        let remaining = Self::remaining_amount(&escrow);
+        let fee = Self::calculate_fee(&escrow, remaining);
+        let release_amount = remaining - fee;
         let token_client = token::Client::new(&env, &escrow.token);
         token_client.transfer(
             &env.current_contract_address(),
@@ -259,7 +260,7 @@ impl EscrowContract {
         let old_status = escrow.status.clone();
         escrow.status = EscrowStatus::Released;
         escrow.released_at = Some(env.ledger().timestamp());
-        escrow.total_released = release_amount;
+        escrow.total_released += release_amount;
         Self::push_history(&env, &mut escrow, old_status, &client, release_amount);
         storage::save_escrow(&env, &escrow);
         events::emit_escrow_released(&env, escrow_id, &client, release_amount);
@@ -286,7 +287,7 @@ impl EscrowContract {
             EscrowStatus::Disputed => return Err(EscrowError::NoActiveDispute),
         }
         let token_client = token::Client::new(&env, &escrow.token);
-        let refund_amount = escrow.amount;
+        let refund_amount = Self::remaining_amount(&escrow);
         token_client.transfer(&env.current_contract_address(), &client, &refund_amount);
         let old_status = escrow.status.clone();
         escrow.status = EscrowStatus::Refunded;
@@ -429,7 +430,7 @@ impl EscrowContract {
             return Err(EscrowError::DeadlineNotPassed);
         }
         let token_client = token::Client::new(&env, &escrow.token);
-        let claim_amount = escrow.amount;
+        let claim_amount = Self::remaining_amount(&escrow);
         token_client.transfer(&env.current_contract_address(), &client, &claim_amount);
         let old_status = escrow.status.clone();
         escrow.status = EscrowStatus::Refunded;
@@ -683,7 +684,7 @@ impl EscrowContract {
             return Err(EscrowError::NoActiveDispute);
         }
         let token_client = token::Client::new(&env, &escrow.token);
-        let escrow_amount = escrow.amount;
+        let escrow_amount = Self::remaining_amount(&escrow);
         let escrow_client = escrow.client.clone();
         let escrow_freelancer = escrow.freelancer.clone();
 
@@ -691,12 +692,17 @@ impl EscrowContract {
             if freelancer_amount < 0 || freelancer_amount > escrow_amount {
                 return Err(EscrowError::InvalidAmount);
             }
+            // The fee is charged on the freelancer's share only, so the
+            // split pays out exactly the remaining balance:
+            // net_freelancer + fee + client_amount == escrow_amount.
+            let fee = Self::calculate_fee(&escrow, freelancer_amount);
+            let net_freelancer = freelancer_amount - fee;
             let client_amount = escrow_amount - freelancer_amount;
-            if freelancer_amount > 0 {
+            if net_freelancer > 0 {
                 token_client.transfer(
                     &env.current_contract_address(),
                     &escrow_freelancer,
-                    &freelancer_amount,
+                    &net_freelancer,
                 );
             }
             if client_amount > 0 {
@@ -706,9 +712,7 @@ impl EscrowContract {
                     &client_amount,
                 );
             }
-            let fee = Self::calculate_fee(&escrow);
-            let net_freelancer = freelancer_amount - fee;
-            if fee > 0 && net_freelancer > 0 {
+            if fee > 0 {
                 if let Some(treasury) = storage::get_treasury(&env) {
                     token_client.transfer(&env.current_contract_address(), &treasury, &fee);
                     events::emit_fee_collected(&env, escrow_id, fee, &treasury);
@@ -717,7 +721,7 @@ impl EscrowContract {
             let old_status = escrow.status.clone();
             escrow.status = EscrowStatus::Released;
             escrow.released_at = Some(env.ledger().timestamp());
-            escrow.total_released = net_freelancer;
+            escrow.total_released += net_freelancer;
             escrow.total_refunded = client_amount;
             Self::push_history(&env, &mut escrow, old_status, &resolver, escrow_amount);
             events::emit_escrow_resolved(
@@ -729,7 +733,7 @@ impl EscrowContract {
                 client_amount,
             );
         } else if release_to_freelancer {
-            let fee = Self::calculate_fee(&escrow);
+            let fee = Self::calculate_fee(&escrow, escrow_amount);
             let release_amount = escrow_amount - fee;
             token_client.transfer(
                 &env.current_contract_address(),
@@ -745,7 +749,7 @@ impl EscrowContract {
             let old_status = escrow.status.clone();
             escrow.status = EscrowStatus::Released;
             escrow.released_at = Some(env.ledger().timestamp());
-            escrow.total_released = release_amount;
+            escrow.total_released += release_amount;
             Self::push_history(&env, &mut escrow, old_status, &resolver, release_amount);
             events::emit_escrow_resolved(
                 &env,
@@ -985,11 +989,18 @@ impl EscrowContract {
         Ok(())
     }
 
-    fn calculate_fee(escrow: &Escrow) -> i128 {
+    /// Platform fee on `base` at the escrow's fee percentage.
+    fn calculate_fee(escrow: &Escrow, base: i128) -> i128 {
         if escrow.fee_percent == 0 {
             return 0;
         }
-        escrow.amount * escrow.fee_percent as i128 / 100
+        base * escrow.fee_percent as i128 / 100
+    }
+
+    /// Tokens the contract still holds for this escrow: the funded amount
+    /// minus whatever has already been paid out through milestone releases.
+    fn remaining_amount(escrow: &Escrow) -> i128 {
+        escrow.amount - escrow.total_released
     }
 
     fn push_history(
