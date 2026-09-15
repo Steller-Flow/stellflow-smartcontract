@@ -1,5 +1,20 @@
 name: Build and Release
 
+# SEP-0055 reproducible build + provenance attestation via the
+# stellar-expert reusable workflow. Triggered by pushing a v* tag.
+#
+# The reusable workflow checks out the repo, cds into `relative_path`,
+# runs `stellar contract build --optimize --package <package>
+# --meta source_repo=github:<owner>/<repo>`, creates a GitHub release
+# containing the .wasm, attests it with actions/attest-build-provenance,
+# and notifies stellar.expert's contract-validation service.
+#
+# Declared inputs (release.yml@main, workflow_call.inputs):
+#   release_name        (required)  release_description   (optional)
+#   relative_path       (optional)  package               (optional)
+#   make_target         (optional)  home_domain           (optional)
+# Declared secrets: release_token (required) — GITHUB_TOKEN is sufficient.
+
 on:
   push:
     tags:
@@ -15,6 +30,8 @@ jobs:
     uses: stellar-expert/soroban-build-workflow/.github/workflows/release.yml@main
     with:
       release_name: ${{ github.ref_name }}
-      release_description: 'StellFlow escrow contract'
-      relative_path: '["escrow"]'
+      release_description: 'StellFlow escrow contract — SEP-0055 reproducible build'
+      relative_path: 'escrow'
       package: 'stellflow-escrow'
+    secrets:
+      release_token: ${{ secrets.GITHUB_TOKEN }}
